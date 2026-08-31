@@ -16,6 +16,15 @@ k3s_version: "v1.35.8+k3s1"
 
 k3s_api_port: 6443
 
+# Kubernetes honours only 3 nameservers; the Strato VPS lists more in
+# /etc/resolv.conf, which makes the kubelet log "Nameserver limits exceeded"
+# every ~90s. Hand K3s (kubelet + CoreDNS upstream) its own short list instead.
+k3s_resolv_conf_manage: true
+k3s_resolvers:
+  - 212.227.123.16     # Strato recursive resolvers - same DC, no rate limits
+  - 212.227.123.17
+  - 1.1.1.1            # public fallback
+
 # --- Identity / DNS -----------------------------------------------------
 # The one public name that resolves to the VPS. Sub-labels
 # (headscale.<domain>, <app>.<domain>) are CNAMEd onto it.

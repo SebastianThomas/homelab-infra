@@ -15,6 +15,9 @@ node-taint:
   - "{{ taint }}"
 {% endfor %}
 {% endif %}
+{% if k3s_resolv_conf_manage | bool %}
+resolv-conf: /etc/rancher/k3s/resolv.conf
+{% endif %}
 
 {% if k3s_enable_vpn | bool %}
 # Mesh over the Headscale tailnet (K3s built-in Tailscale integration).

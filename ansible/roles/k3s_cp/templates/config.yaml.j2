@@ -29,6 +29,9 @@ tls-san:
 
 kubelet-arg:
   - "eviction-hard=memory.available<100Mi,nodefs.available<10%,imagefs.available<10%"
+{% if k3s_resolv_conf_manage | bool %}
+resolv-conf: /etc/rancher/k3s/resolv.conf
+{% endif %}
 {% if k3s_cp_namespace_scheduling | bool %}
 
 # Let a namespace pin all its pods to a node (annotations set by

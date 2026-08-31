@@ -7,6 +7,20 @@
     group: root
     mode: "0750"
 
+- name: Write the K3s upstream resolv.conf
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/k3s_cp. Kubernetes honours only 3 nameservers.
+      {% for ns in k3s_resolvers %}
+      nameserver {{ ns }}
+      {% endfor %}
+  when: k3s_resolv_conf_manage | bool
+  notify: Restart k3s
+
 - name: Write the K3s server config
   ansible.builtin.template:
     src: config.yaml.j2
