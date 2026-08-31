@@ -16,7 +16,7 @@
     state: directory
     owner: root
     group: root
-    mode: "0750"
+    mode: "0755"      # k3s default; secrets are protected by config.yaml's 0600
 
 - name: Write the K3s upstream resolv.conf
   ansible.builtin.copy:
@@ -75,13 +75,11 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Wait for the worker to report Ready (checked from the control plane)
-  ansible.builtin.command: >-
-    k3s kubectl get node {{ inventory_hostname }}
-    -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  ansible.builtin.command: "k3s kubectl get node {{ inventory_hostname }} --no-headers"
   delegate_to: "{{ groups['k3s_cp'][0] }}"
   become: true
   register: k3s_worker_ready
-  until: k3s_worker_ready.stdout == "True"
+  until: k3s_worker_ready.rc == 0 and k3s_worker_ready.stdout.split()[1:2] == ["Ready"]
   retries: 30
   delay: 10
   changed_when: false

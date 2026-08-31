@@ -5,7 +5,7 @@
     state: directory
     owner: root
     group: root
-    mode: "0750"
+    mode: "0755"      # k3s default; secrets are protected by config.yaml's 0600
 
 - name: Write the K3s upstream resolv.conf
   ansible.builtin.copy:
@@ -87,14 +87,39 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Wait for the control-plane node to report Ready
-  ansible.builtin.command: >-
-    k3s kubectl get node {{ inventory_hostname }}
-    -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  ansible.builtin.command: "k3s kubectl get node {{ inventory_hostname }} --no-headers"
   register: k3s_cp_ready
-  until: k3s_cp_ready.stdout == "True"
+  until: k3s_cp_ready.rc == 0 and k3s_cp_ready.stdout.split()[1:2] == ["Ready"]
   retries: 30
   delay: 10
   changed_when: false
+
+- name: Give the login user a kubeconfig (~/.kube/config on the node)
+  when:
+    - k3s_cp_user_kubeconfig | bool
+    - ansible_user != "root"
+  block:
+    - name: Look up the login user's home directory
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ ansible_user }}"
+
+    - name: Ensure ~/.kube exists for {{ ansible_user }}
+      ansible.builtin.file:
+        path: "{{ getent_passwd[ansible_user][4] }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Install k3s.yaml as ~/.kube/config
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ getent_passwd[ansible_user][4] }}/.kube/config"
+        remote_src: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
 
 - name: Fetch the kubeconfig back to the Ansible controller
   when: k3s_cp_fetch_kubeconfig | bool

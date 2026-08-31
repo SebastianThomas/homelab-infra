@@ -2,7 +2,7 @@
 # /etc/rancher/k3s/config.yaml - K3s server. Manual edits are overwritten.
 
 token: "{{ vault_k3s_token }}"
-write-kubeconfig-mode: "0644"
+write-kubeconfig-mode: "0600"
 
 # Embedded SQLite datastore is the default: no `cluster-init`, no
 # `datastore-endpoint`. The server stays schedulable (K3s adds no taint), so

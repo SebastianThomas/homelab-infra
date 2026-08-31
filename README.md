@@ -149,14 +149,24 @@ and open `…/admin`.
 
 ## Using the cluster
 
-```bash
-# fetched automatically by provision/local Ansible:
-export KUBECONFIG=$PWD/kubeconfig/kube-cp-01.yaml
-kubectl get nodes
+**On the node** — `provision` drops a working `~/.kube/config` for your SSH user,
+so `kubectl` just works over SSH:
 
-# or grab it by hand:
-ssh sebas@homelab.sthomas.ch sudo cat /etc/rancher/k3s/k3s.yaml \
-  | sed 's#127.0.0.1#homelab.sthomas.ch#' > ~/.kube/homelab.yaml
+```bash
+ssh sebas@homelab.sthomas.ch kubectl get nodes
+```
+
+**From your laptop** — a local Ansible run writes `kubeconfig/kube-cp-01.yaml`
+(git-ignored, API address already rewritten to `homelab.sthomas.ch`):
+
+```bash
+export KUBECONFIG=$PWD/kubeconfig/kube-cp-01.yaml && kubectl get nodes
+```
+
+Or pull it over SSH (rewriting the loopback address):
+
+```bash
+ssh sebas@homelab.sthomas.ch sudo cat /etc/rancher/k3s/k3s.yaml | sed 's#127.0.0.1#homelab.sthomas.ch#' > ~/.kube/homelab.yaml
 ```
 
 `kubeconfig/` and `*.kubeconfig` are git-ignored — never commit one.

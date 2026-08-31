@@ -13,6 +13,10 @@ k3s_cp_namespace_scheduling: true
 k3s_cp_fetch_kubeconfig: true
 k3s_cp_kubeconfig_server: "https://{{ ansible_host }}:{{ k3s_api_port }}"
 
+# Also drop it at ~/.kube/config for the SSH login user, so `kubectl` works
+# on the node without sudo. k3s.yaml stays root-only (write-kubeconfig-mode 0600).
+k3s_cp_user_kubeconfig: true
+
 # NOTE: SQLite datastore and a schedulable control plane are both K3s defaults,
 # so there is nothing to configure for them. We keep the bundled Traefik,
 # ServiceLB, local-path-provisioner, CoreDNS and metrics-server.
