@@ -1,0 +1,59 @@
+# A namespace-scoped ServiceAccount that the app's own repo uses to deploy its
+# Deployment / Service. Blast radius = this namespace only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployer
+  namespace: myapp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: myapp
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "persistentvolumeclaims", "pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: myapp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deployer
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: myapp
+---
+# Long-lived token for the deployer SA (K8s >= 1.24 does not auto-create one).
+# Extract the three values the app repo needs with:
+#   kubectl -n myapp get secret deployer-token -o jsonpath='{.data.token}'  | base64 -d   # -> KUBE_TOKEN
+#   kubectl -n myapp get secret deployer-token -o jsonpath='{.data.ca\.crt}'              # -> KUBE_CA (already base64)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deployer-token
+  namespace: myapp
+  annotations:
+    kubernetes.io/service-account.name: deployer
+type: kubernetes.io/service-account-token

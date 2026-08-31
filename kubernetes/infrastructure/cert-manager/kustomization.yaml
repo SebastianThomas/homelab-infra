@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# cert-manager itself is installed from its pinned upstream manifest by
+# bootstrap.sh / deploy.yml (CERT_MANAGER_VERSION), which then waits for the
+# webhook before applying this kustomization. Applying the ClusterIssuers here
+# separately avoids the "CRD not established yet" race.
+resources:
+  - cluster-issuer.yaml

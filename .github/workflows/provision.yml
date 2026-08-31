@@ -1,0 +1,59 @@
+name: provision
+
+# Runs Ansible against the hosts (base OS + K3s). Manual only - infra changes
+# should be deliberate.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "ansible --limit expression (optional, e.g. k3s_cp)"
+        required: false
+        default: ""
+      check:
+        description: "dry run (--check --diff)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: provision
+  cancel-in-progress: false
+
+jobs:
+  ansible:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-ansible
+
+      - uses: ./.github/actions/setup-ssh
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          tailscale-authkey: ${{ secrets.TS_AUTHKEY }}
+          headscale-url: ${{ secrets.HEADSCALE_URL }}
+
+      - name: Materialize Ansible secrets
+        working-directory: ansible
+        run: |
+          umask 077
+          cat > group_vars/all/vault.yml <<EOF
+          vault_k3s_token: "${{ secrets.K3S_TOKEN }}"
+          vault_tailscale_preauth_key: "${{ secrets.TS_PREAUTH_KEY }}"
+          EOF
+
+      - name: ansible-playbook site.yml
+        working-directory: ansible
+        env:
+          ANSIBLE_SSH_USER: ${{ secrets.ANSIBLE_SSH_USER }}
+        run: |
+          args=()
+          [ -n "${{ inputs.limit }}" ] && args+=(--limit "${{ inputs.limit }}")
+          [ "${{ inputs.check }}" = "true" ] && args+=(--check --diff)
+          ansible-playbook site.yml "${args[@]}"
+
+      - name: Scrub secrets
+        if: always()
+        working-directory: ansible
+        run: rm -f group_vars/all/vault.yml

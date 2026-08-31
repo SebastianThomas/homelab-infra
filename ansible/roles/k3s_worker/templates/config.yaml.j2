@@ -1,0 +1,22 @@
+{{ ansible_managed | comment }}
+# /etc/rancher/k3s/config.yaml - K3s agent. Manual edits are overwritten.
+
+token: "{{ vault_k3s_token }}"
+server: "{{ k3s_worker_server | trim }}"
+
+node-label:
+{% for label in node_labels | default([]) %}
+  - "{{ label }}"
+{% endfor %}
+
+{% if node_taints | default([]) | length > 0 %}
+node-taint:
+{% for taint in node_taints %}
+  - "{{ taint }}"
+{% endfor %}
+{% endif %}
+
+{% if k3s_enable_vpn | bool %}
+# Mesh over the Headscale tailnet (K3s built-in Tailscale integration).
+vpn-auth: "name=tailscale,joinKey={{ vault_tailscale_preauth_key }},controlServerURL={{ k3s_headscale_url }}"
+{% endif %}

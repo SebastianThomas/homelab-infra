@@ -1,0 +1,44 @@
+name: lint
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ansible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-ansible
+        with:
+          extra-packages: ansible-lint yamllint
+      - name: Syntax check
+        working-directory: ansible
+        run: ansible-playbook site.yml --syntax-check
+      - name: ansible-lint
+        working-directory: ansible
+        run: ansible-lint
+      - name: yamllint
+        run: yamllint .
+
+  kustomize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v5
+      - name: Build every overlay
+        run: |
+          rc=0
+          while IFS= read -r k; do
+            grep -q 'kind: Component' "$k" && continue
+            d=$(dirname "$k")
+            echo "== $d"
+            kubectl kustomize "$d" >/dev/null || { echo "::error::kustomize build failed: $d"; rc=1; }
+          done < <(find kubernetes -name kustomization.yaml | sort)
+          exit $rc
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck kubernetes/bootstrap.sh

@@ -1,0 +1,38 @@
+# ACME / Let's Encrypt issuer used by every app Ingress:
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#
+# HTTP-01 solver via Traefik. The VPS is publicly reachable on :80, so this
+# works without a DNS API. Per-host certificates (no wildcard - Strato has no
+# ACME DNS API).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: kontakt@sthomas.ch
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+# Staging issuer for testing (higher rate limits, untrusted certs). Switch an
+# Ingress to this with cert-manager.io/cluster-issuer: letsencrypt-staging.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: kontakt@sthomas.ch
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

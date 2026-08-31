@@ -1,0 +1,77 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    ':dependencyDashboard',
+    ':semanticCommitsDisabled',
+  ],
+
+  // Homelab: batch noise, auto-merge only the safe stuff.
+  timezone: 'Europe/Zurich',
+  schedule: ['before 6am on monday'],
+  prConcurrentLimit: 5,
+  labels: ['dependencies'],
+
+  // Renovate's kubernetes manager has no default file list.
+  kubernetes: {
+    managerFilePatterns: [
+      '/kubernetes/.+\\.ya?ml$/',
+    ],
+  },
+
+  packageRules: [
+    // Digest + patch bumps for our own-ish infra images: auto-merge.
+    {
+      matchManagers: ['kubernetes'],
+      matchUpdateTypes: ['digest', 'patch'],
+      automerge: true,
+    },
+    // GitHub Actions: pin, group, auto-merge minor/patch.
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'github-actions',
+      automerge: true,
+    },
+    // K3s: never auto-merge - a node reboot / API bump is involved.
+    {
+      matchDepNames: ['k3s-io/k3s'],
+      automerge: false,
+      labels: ['dependencies', 'k3s-upgrade'],
+    },
+    // CloudNativePG catalog images: timestamped tags, digest-pinned. Renovate
+    // can only partially track these - see kubernetes/infrastructure/cloudnative-pg.
+    {
+      matchPackageNames: ['ghcr.io/cloudnative-pg/**'],
+      groupName: 'cloudnative-pg images',
+      automerge: false,
+    },
+  ],
+
+  customManagers: [
+    // `# renovate: datasource=X depName=Y` above a `key: "value"` (YAML)
+    // or a `KEY="value"` (shell) line.
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/ansible/group_vars/all/main\\.yml$/',
+        '/kubernetes/bootstrap\\.sh$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( versioning=(?<versioning>\\S+))?\\s*\\n\\s*[A-Za-z0-9_]+\\s*[:=]\\s*["\']?(?<currentValue>[^"\'\\s]+)["\']?',
+      ],
+    },
+    // CloudNativePG catalog image + extension references (tag@sha256).
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/kubernetes/infrastructure/cloudnative-pg/image-catalog\\.yaml$/',
+      ],
+      datasourceTemplate: 'docker',
+      versioningTemplate: 'loose',
+      matchStrings: [
+        '(?:image|reference):\\s*(?<depName>ghcr\\.io/cloudnative-pg/[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)',
+      ],
+    },
+  ],
+}

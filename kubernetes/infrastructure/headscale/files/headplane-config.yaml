@@ -1,0 +1,35 @@
+# Managed in git - kubernetes/infrastructure/headscale/files/headplane-config.yaml
+# Rendered into the `headplane-config` ConfigMap by kustomize.
+# Schema: headplane 0.7.x  (https://github.com/tale/headplane/blob/v0.7.1/config.example.yaml)
+
+server:
+  host: "0.0.0.0"
+  port: 3000
+  # Public URL WITHOUT the /admin suffix.
+  base_url: "https://headscale.homelab.sthomas.ch"
+  cookie_secret_path: "/etc/headplane/secrets/cookie_secret"
+  cookie_secure: true
+  cookie_max_age: 86400
+  data_path: "/var/lib/headplane"
+
+headscale:
+  # In-cluster address of the headscale HTTP API.
+  url: "http://headscale.headscale.svc.cluster.local:8080"
+  # Read-only mount of headscale's config (Headplane shows the settings; it
+  # cannot change them in this "limited" mode - that is by design, config
+  # stays in git).
+  config_path: "/etc/headscale/config.yaml"
+  api_key_path: "/etc/headplane/secrets/api_key"
+
+integration:
+  agent:
+    enabled: false
+  docker:
+    enabled: false
+  kubernetes:
+    enabled: false
+
+# OIDC is not configured. Log in to the dashboard by pasting a headscale API
+# key. To add OIDC later, set `oidc:` here (issuer, client_id,
+# client_secret_path) and register the redirect URI
+# https://headscale.homelab.sthomas.ch/admin/oidc/callback with the IdP.

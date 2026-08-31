@@ -1,0 +1,18 @@
+---
+# ufw rules for a public K3s server. Applied only when firewall_enabled is true.
+#
+# Each entry: { port, proto, comment, from (optional CIDR) }
+firewall_allow_rules:
+  - { port: 22,   proto: tcp, comment: "SSH" }
+  - { port: 80,   proto: tcp, comment: "HTTP (Traefik / ACME HTTP-01)" }
+  - { port: 443,  proto: tcp, comment: "HTTPS (Traefik)" }
+  - { port: 6443, proto: tcp, comment: "Kubernetes API / K3s supervisor" }
+
+# Phase 2 hardening: once the worker joins over the tailnet and you use the
+# tailnet for kubectl, you can drop the public 22/6443 rules above and instead
+# allow them only from the tailnet, e.g.:
+#   - { port: 22,   proto: tcp, from: "100.64.0.0/10", comment: "SSH via tailnet" }
+#   - { port: 6443, proto: tcp, from: "100.64.0.0/10", comment: "kube API via tailnet" }
+
+firewall_default_incoming: deny
+firewall_default_outgoing: allow

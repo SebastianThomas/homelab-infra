@@ -1,0 +1,39 @@
+name: Configure SSH
+description: >
+  Write the deploy key and known_hosts. If a Tailscale auth key is supplied,
+  also join the Headscale tailnet (Phase 2) so nodes are reachable privately.
+
+inputs:
+  ssh-private-key:
+    description: Private key with access to the nodes.
+    required: true
+  ssh-known-hosts:
+    description: Contents for ~/.ssh/known_hosts (optional).
+    required: false
+    default: ""
+  tailscale-authkey:
+    description: Headscale pre-auth key. Empty = skip the tailnet (public SSH).
+    required: false
+    default: ""
+  headscale-url:
+    description: Headscale control server URL (used only with tailscale-authkey).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Write SSH key + known_hosts
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        printf '%s\n' "${{ inputs.ssh-private-key }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        printf '%s\n' "${{ inputs.ssh-known-hosts }}" > ~/.ssh/known_hosts
+
+    - name: Join the Headscale tailnet
+      if: inputs.tailscale-authkey != ''
+      uses: tailscale/github-action@v4
+      with:
+        authkey: ${{ inputs.tailscale-authkey }}
+        args: --login-server=${{ inputs.headscale-url }} --accept-dns=false

@@ -1,0 +1,15 @@
+extends: relaxed
+
+rules:
+  line-length: disable
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  document-start: disable
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+ignore: |
+  kubeconfig/
+  .venv/

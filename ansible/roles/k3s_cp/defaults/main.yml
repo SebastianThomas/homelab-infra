@@ -1,0 +1,18 @@
+---
+k3s_install_script_url: "https://get.k3s.io"
+k3s_install_script_path: "/usr/local/bin/k3s-install.sh"
+
+# Enable the PodNodeSelector + PodTolerationRestriction admission plugins so an
+# app namespace can pin its workloads to a node via annotations (see
+# kubernetes/apps/). Both are no-ops on namespaces without those annotations.
+k3s_cp_namespace_scheduling: true
+
+# Copy /etc/rancher/k3s/k3s.yaml back to the machine running Ansible, into
+# ./kubeconfig/ (git-ignored), with the API address rewritten so it works
+# remotely.
+k3s_cp_fetch_kubeconfig: true
+k3s_cp_kubeconfig_server: "https://{{ ansible_host }}:{{ k3s_api_port }}"
+
+# NOTE: SQLite datastore and a schedulable control plane are both K3s defaults,
+# so there is nothing to configure for them. We keep the bundled Traefik,
+# ServiceLB, local-path-provisioner, CoreDNS and metrics-server.

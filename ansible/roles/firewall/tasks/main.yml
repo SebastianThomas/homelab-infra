@@ -1,0 +1,30 @@
+---
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Set default incoming policy
+  community.general.ufw:
+    direction: incoming
+    policy: "{{ firewall_default_incoming }}"
+
+- name: Set default outgoing policy
+  community.general.ufw:
+    direction: outgoing
+    policy: "{{ firewall_default_outgoing }}"
+
+- name: Allow configured ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ item.from | default('any') }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ firewall_allow_rules }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }} from {{ item.from | default('any') }}"
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled

@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The CloudNativePG operator itself is installed from its pinned upstream
+# manifest by bootstrap.sh / deploy.yml (CNPG_VERSION), which waits for the
+# controller before applying this kustomization.
+#
+# This kustomization adds the shared image catalog. Per-database `Cluster`
+# objects live with their app under kubernetes/apps/<app>/.
+resources:
+  - image-catalog.yaml

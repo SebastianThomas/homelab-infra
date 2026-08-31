@@ -1,0 +1,48 @@
+{{ ansible_managed | comment }}
+# /etc/rancher/k3s/config.yaml - K3s server. Manual edits are overwritten.
+
+token: "{{ vault_k3s_token }}"
+write-kubeconfig-mode: "0644"
+
+# Embedded SQLite datastore is the default: no `cluster-init`, no
+# `datastore-endpoint`. The server stays schedulable (K3s adds no taint), so
+# kube-cp-01 can run the whole cluster on its own.
+
+node-label:
+{% for label in node_labels | default([]) %}
+  - "{{ label }}"
+{% endfor %}
+
+tls-san:
+  - "{{ inventory_hostname }}"
+  - "{{ ansible_host }}"
+{% if node_ip_public is defined and node_ip_public %}
+  - "{{ node_ip_public }}"
+{% endif %}
+{% for san in extra_tls_san | default([]) %}
+  - "{{ san }}"
+{% endfor %}
+{% if k3s_enable_vpn | bool and k3s_cp_tailscale_ip %}
+  - "{{ k3s_cp_tailscale_ip }}"
+  - "{{ inventory_hostname }}.ts.{{ cluster_domain }}"
+{% endif %}
+
+kubelet-arg:
+  - "eviction-hard=memory.available<100Mi,nodefs.available<10%,imagefs.available<10%"
+{% if k3s_cp_namespace_scheduling | bool %}
+
+# Let a namespace pin all its pods to a node (annotations set by
+# kubernetes/apps/<app>/namespace.yaml). No-op for namespaces without the
+# annotations. Lets app repos ship placement-agnostic Deployments.
+kube-apiserver-arg:
+  - "enable-admission-plugins=PodNodeSelector,PodTolerationRestriction"
+{% endif %}
+{% if k3s_enable_vpn | bool %}
+
+# Phase 2: nodes mesh over the Headscale tailnet via K3s's built-in Tailscale
+# integration. Headscale must already be running in the cluster.
+vpn-auth: "name=tailscale,joinKey={{ vault_tailscale_preauth_key }},controlServerURL={{ k3s_headscale_url }}"
+{% if k3s_cp_tailscale_ip %}
+node-external-ip: "{{ k3s_cp_tailscale_ip }}"
+{% endif %}
+{% endif %}

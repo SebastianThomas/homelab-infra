@@ -1,0 +1,84 @@
+name: Deploy to homelab k8s
+description: >
+  Apply an app's own manifests to its namespace on the homelab cluster and wait
+  for the rollout. Meant to be called FROM AN APP REPO:
+
+    - uses: SebastianThomas/homelab-infra/.github/actions/deploy-to-k8s@main
+      with:
+        app: myapp
+        image: ghcr.io/sebastianthomas/myapp:${{ github.ref_name }}
+        kube-api: ${{ secrets.KUBE_API }}
+        kube-ca: ${{ secrets.KUBE_CA }}
+        kube-token: ${{ secrets.KUBE_TOKEN }}
+
+  The namespace, RBAC (the `deployer` SA whose token this uses), database and
+  ingress are provisioned once by homelab-infra (kubernetes/apps/<app>/).
+  Manifests in `path` may reference the literal `${APP_IMAGE}` - it is replaced
+  with `image` before apply.
+
+inputs:
+  app:
+    description: App name = namespace = Deployment name.
+    required: true
+  image:
+    description: Full image ref to deploy (e.g. ghcr.io/me/app:v1.2.3).
+    required: true
+  path:
+    description: Directory in the caller repo holding the manifests (+ optional kustomization.yaml).
+    required: false
+    default: deploy
+  kube-api:
+    required: true
+  kube-ca:
+    description: Base64 CA cert (the `ca.crt` value from the deployer-token Secret).
+    required: true
+  kube-token:
+    description: The deployer ServiceAccount token.
+    required: true
+  rollout-timeout:
+    required: false
+    default: 180s
+
+runs:
+  using: composite
+  steps:
+    - uses: azure/setup-kubectl@v5
+
+    - name: Write kubeconfig
+      shell: bash
+      run: |
+        umask 077 && mkdir -p ~/.kube
+        cat > ~/.kube/config <<EOF
+        apiVersion: v1
+        kind: Config
+        clusters:
+          - name: homelab
+            cluster:
+              server: ${{ inputs.kube-api }}
+              certificate-authority-data: ${{ inputs.kube-ca }}
+        users:
+          - name: deployer
+            user:
+              token: ${{ inputs.kube-token }}
+        contexts:
+          - name: homelab
+            context: { cluster: homelab, user: deployer, namespace: ${{ inputs.app }} }
+        current-context: homelab
+        EOF
+
+    - name: Render + apply
+      shell: bash
+      env:
+        APP_IMAGE: ${{ inputs.image }}
+        APP: ${{ inputs.app }}
+        SRC: ${{ inputs.path }}
+        TIMEOUT: ${{ inputs.rollout-timeout }}
+      run: |
+        set -euo pipefail
+        if [ -f "${SRC}/kustomization.yaml" ]; then
+          render() { kubectl kustomize "${SRC}"; }
+        else
+          render() { cat "${SRC}"/*.yaml; }
+        fi
+        render | envsubst '$APP_IMAGE' | kubectl apply -n "${APP}" -f -
+        kubectl -n "${APP}" rollout status "deployment/${APP}" --timeout="${TIMEOUT}"

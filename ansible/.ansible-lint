@@ -1,0 +1,13 @@
+---
+profile: basic
+
+exclude_paths:
+  - .cache/
+  - .github/
+
+# Inventory hostnames use hyphens (kube-cp-01); that is deliberate.
+skip_list:
+  - var-naming[pattern]
+
+kinds:
+  - playbook: "site.yml"

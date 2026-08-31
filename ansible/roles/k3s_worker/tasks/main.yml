@@ -1,0 +1,73 @@
+---
+- name: Fail early if the VPN substrate is not enabled
+  ansible.builtin.assert:
+    that:
+      - k3s_enable_vpn | bool
+      - k3s_cp_tailscale_ip | length > 0
+    fail_msg: >-
+      kube-worker-01 joins over the Headscale tailnet. Set k3s_enable_vpn: true,
+      set k3s_cp_tailscale_ip to the server's tailnet IP, and provide
+      vault_tailscale_preauth_key. See README "Adding kube-worker-01".
+    success_msg: "VPN substrate configured - proceeding with the agent install."
+
+- name: Create the K3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Write the K3s agent config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s-agent
+
+- name: Download the K3s install script
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_script_url }}"
+    dest: "{{ k3s_install_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check the installed K3s version
+  ansible.builtin.command: k3s --version
+  register: k3s_worker_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install / upgrade the K3s agent
+  ansible.builtin.command: "{{ k3s_install_script_path }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "agent"
+  when: >-
+    k3s_worker_installed.rc != 0
+    or k3s_version not in k3s_worker_installed.stdout
+
+- name: Ensure the k3s-agent service is enabled and started
+  ansible.builtin.systemd:
+    name: k3s-agent
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending restarts
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the worker to report Ready (checked from the control plane)
+  ansible.builtin.command: >-
+    k3s kubectl get node {{ inventory_hostname }}
+    -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  delegate_to: "{{ groups['k3s_cp'][0] }}"
+  become: true
+  register: k3s_worker_ready
+  until: k3s_worker_ready.stdout == "True"
+  retries: 30
+  delay: 10
+  changed_when: false

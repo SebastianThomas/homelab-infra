@@ -1,0 +1,26 @@
+name: Fetch kubeconfig
+description: >
+  SSH to the control plane, read /etc/rancher/k3s/k3s.yaml and write it to
+  ~/.kube/config with the API server address rewritten to a reachable one.
+  Requires setup-ssh to have run first.
+
+inputs:
+  ssh-user:
+    required: true
+  ssh-host:
+    required: true
+  kube-api:
+    description: API URL to write into the kubeconfig (e.g. https://host:6443).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch kubeconfig
+      shell: bash
+      run: |
+        mkdir -p ~/.kube && umask 077
+        ssh -o StrictHostKeyChecking=accept-new "${{ inputs.ssh-user }}@${{ inputs.ssh-host }}" \
+          sudo cat /etc/rancher/k3s/k3s.yaml \
+          | sed "s#https://127.0.0.1:6443#${{ inputs.kube-api }}#" > ~/.kube/config
+        kubectl config current-context

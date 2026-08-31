@@ -1,0 +1,44 @@
+# Vendored + trimmed from the official CloudNativePG catalog:
+#   https://github.com/cloudnative-pg/artifacts/blob/dfa7bef/image-catalogs-extensions/catalog-minimal-trixie.yaml
+#
+# Trimmed to the two majors we care about (17 = previous, 18 = current). The
+# PostgreSQL 18 `extensions` stanza makes PostGIS / pgvector / pgaudit /
+# timescaledb-oss available as extension images (mounted on demand only when a
+# Cluster references them - see kubernetes/apps/README.md).
+#
+# Image digests are kept fresh by Renovate (see .github/renovate.json5).
+# `minimal` base images auto-upgrade patch releases within a major.
+apiVersion: postgresql.cnpg.io/v1
+kind: ClusterImageCatalog
+metadata:
+  name: postgresql-minimal-trixie
+  labels:
+    images.cnpg.io/family: postgresql
+    images.cnpg.io/os: trixie
+    images.cnpg.io/type: minimal
+spec:
+  images:
+    - major: 17
+      image: ghcr.io/cloudnative-pg/postgresql:17.11-202608310816-minimal-trixie@sha256:c3c572b1cae6404fb508516456b0288d1c35feda39d4ef59857af2c9abe9282d
+    - major: 18
+      image: ghcr.io/cloudnative-pg/postgresql:18.6-202608310817-minimal-trixie@sha256:5c389b0268d9e637ca55efa41a7fafa3996332b5ea3c6099d0861c5f31acb00e
+      extensions:
+        - name: pgaudit
+          image:
+            reference: ghcr.io/cloudnative-pg/pgaudit:18.0-202608271202-18-trixie@sha256:4bac0a8afa2415405eb2ec427f8ef03f06b29af6e5698bb58b59bd16b8710454
+        - name: pgvector
+          image:
+            reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-202608271202-18-trixie@sha256:eb037e7c3244059fe0d6732ba8f6d94cd1e864ee306f5f55f37bcc11713aaa4a
+        - name: postgis
+          image:
+            reference: ghcr.io/cloudnative-pg/postgis-extension:3.6.4-202608271203-18-trixie@sha256:83e3d1af20ad5754f7df7a48396910ee305f8ec604321d5c61daa7d291d4da0d
+          ld_library_path:
+            - system
+          env:
+            - name: GDAL_DATA
+              value: ${image_root}/share/gdal
+            - name: PROJ_DATA
+              value: ${image_root}/share/proj
+        - name: timescaledb-oss
+          image:
+            reference: ghcr.io/cloudnative-pg/timescaledb-oss:2.29.2-202608271203-18-trixie@sha256:c2867dd44b0ce507b3f40f07dfed43b943d871fc88705879dfebfc8774bc5452

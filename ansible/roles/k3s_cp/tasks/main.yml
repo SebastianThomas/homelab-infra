@@ -1,0 +1,109 @@
+---
+- name: Create the K3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Write the K3s server config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Create the k3s systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the crash-loop hardening drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s.service.d/10-startlimit.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/k3s_cp
+      # Fail fast instead of crash-looping the API server forever.
+      [Unit]
+      StartLimitIntervalSec=300
+      StartLimitBurst=5
+  notify: Restart k3s
+
+- name: Download the K3s install script
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_script_url }}"
+    dest: "{{ k3s_install_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check the installed K3s version
+  ansible.builtin.command: k3s --version
+  register: k3s_cp_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install / upgrade the K3s server
+  ansible.builtin.command: "{{ k3s_install_script_path }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "server"
+  when: >-
+    k3s_cp_installed.rc != 0
+    or k3s_version not in k3s_cp_installed.stdout
+  # The installer runs daemon-reload and (re)starts the service itself.
+
+- name: Ensure the k3s service is enabled and started
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending restarts before waiting for readiness
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the control-plane node to report Ready
+  ansible.builtin.command: >-
+    k3s kubectl get node {{ inventory_hostname }}
+    -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  register: k3s_cp_ready
+  until: k3s_cp_ready.stdout == "True"
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Fetch the kubeconfig back to the Ansible controller
+  when: k3s_cp_fetch_kubeconfig | bool
+  block:
+    - name: Read the kubeconfig from the server
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: k3s_cp_kubeconfig
+
+    - name: Ensure the local kubeconfig directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../kubeconfig"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Save the kubeconfig locally with a reachable API address
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../kubeconfig/{{ inventory_hostname }}.yaml"
+        mode: "0600"
+        content: >-
+          {{ k3s_cp_kubeconfig.content | b64decode
+             | replace('https://127.0.0.1:6443', k3s_cp_kubeconfig_server) }}
+      delegate_to: localhost
+      become: false

@@ -1,0 +1,22 @@
+name: Set up Ansible
+description: Install Python, Ansible (+ optional extras) and the Galaxy collections.
+
+inputs:
+  extra-packages:
+    description: Extra pip packages, space-separated (e.g. "ansible-lint yamllint").
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: pip install
+      shell: bash
+      run: pip install --disable-pip-version-check ansible ${{ inputs.extra-packages }}
+    - name: Galaxy collections
+      shell: bash
+      working-directory: ansible
+      run: ansible-galaxy collection install -r requirements.yml

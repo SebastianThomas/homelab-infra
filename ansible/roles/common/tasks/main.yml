@@ -1,0 +1,108 @@
+---
+- name: Set the system hostname to the inventory name
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Upgrade installed packages
+  ansible.builtin.apt:
+    upgrade: safe
+  when: common_apt_upgrade | bool
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+
+- name: Read the current timezone
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: common_current_tz
+  changed_when: false
+
+- name: Set the timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ timezone }}"
+  when: common_current_tz.stdout | trim != timezone
+  changed_when: true
+
+# --- Swap ---------------------------------------------------------------
+- name: Disable swap now
+  ansible.builtin.command: swapoff --all
+  when:
+    - common_disable_swap | bool
+    - ansible_swaptotal_mb | default(0) | int > 0
+  changed_when: true
+
+- name: Comment out swap entries in /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+  when: common_disable_swap | bool
+
+# --- Cluster name resolution ------------------------------------------
+- name: Maintain /etc/hosts entries for every cluster node
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED - homelab cluster nodes"
+    block: |
+      {% for h in groups['all'] | sort %}
+      {{ hostvars[h].ansible_host | default(h) }} {{ h }}
+      {% endfor %}
+  when: common_manage_etc_hosts | bool
+
+# --- Kernel modules --------------------------------------------------
+- name: Ensure the wireguard module loads at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/wireguard.conf
+    content: "wireguard\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: common_load_wireguard | bool
+
+- name: Load the wireguard module now (if not already present)
+  ansible.builtin.command: modprobe wireguard
+  changed_when: false
+  failed_when: false          # built-in on some kernels, or loaded at boot; not fatal
+  when: common_load_wireguard | bool
+
+# --- Tailscale (Phase 2 - only when the VPN substrate is enabled) -------
+- name: Set up Tailscale for the K3s VPN integration
+  when: k3s_enable_vpn | bool
+  block:
+    - name: Add the Tailscale apt signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add the Tailscale apt repository
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.tailscale-keyring.list"
+        dest: /etc/apt/sources.list.d/tailscale.list
+        owner: root
+        group: root
+        mode: "0644"
+      register: common_tailscale_repo
+
+    - name: Refresh apt cache after adding the Tailscale repo
+      ansible.builtin.apt:
+        update_cache: true
+      when: common_tailscale_repo is changed
+
+    - name: Install tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+
+    - name: Enable and start tailscaled
+      ansible.builtin.systemd:
+        name: tailscaled
+        enabled: true
+        state: started

@@ -1,0 +1,17 @@
+---
+# Overridable defaults. Real values come from group_vars/all/main.yml.
+timezone: "UTC"
+common_packages:
+  - curl
+  - ca-certificates
+  - gnupg
+common_apt_upgrade: false
+common_disable_swap: true
+
+# Manage /etc/hosts with an entry for every inventory host so nodes resolve
+# each other by name.
+common_manage_etc_hosts: true
+
+# Load the wireguard kernel module (needed by the Tailscale substrate / K3s
+# wireguard flannel backend). Harmless if unused.
+common_load_wireguard: true

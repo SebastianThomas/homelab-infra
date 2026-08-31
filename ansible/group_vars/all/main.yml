@@ -1,0 +1,61 @@
+---
+# ===========================================================================
+# Cluster-wide, non-secret variables.
+#
+# Secrets live in group_vars/all/vault.yml (git-ignored): CI writes it from
+# GitHub Environment secrets; locally you create it with ansible-vault. See
+# vault.example.yml.
+# ===========================================================================
+
+# --- K3s ------------------------------------------------------------------
+# Pin an exact release. Releases: https://github.com/k3s-io/k3s/releases
+# NEVER use a channel ("stable"/"latest") - re-runs must be reproducible.
+# To upgrade: bump this and re-run site.yml (servers first, one minor at a time).
+# renovate: datasource=github-releases depName=k3s-io/k3s
+k3s_version: "v1.35.8+k3s1"
+
+k3s_api_port: 6443
+
+# --- Identity / DNS -----------------------------------------------------
+# The one public name that resolves to the VPS. Sub-labels
+# (headscale.<domain>, <app>.<domain>) are CNAMEd onto it.
+cluster_domain: "homelab.sthomas.ch"
+
+# Prefix for Kubernetes node labels / taints we manage.
+homelab_label_domain: "homelab.sthomas.ch"
+
+# --- Base OS (common role) --------------------------------------------
+timezone: "Europe/Zurich"
+common_packages:
+  - curl
+  - ca-certificates
+  - gnupg
+  - vim
+  - htop
+  - jq
+common_apt_upgrade: true
+common_disable_swap: true
+
+# --- Firewall (firewall role, VPS only) ------------------------------
+firewall_enabled: true
+
+# ===========================================================================
+# Phase 2 - Tailscale substrate for the Raspberry Pi worker.
+#
+# Left OFF. The worker joins the K3s pod network over the Headscale tailnet
+# (K3s built-in `--vpn-auth` integration). Headscale must already be running in
+# the cluster before this is switched on. Procedure: see README "Adding
+# kube-worker-01".
+# ===========================================================================
+k3s_enable_vpn: false
+
+# Headscale control server the nodes' embedded Tailscale authenticates against.
+k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
+
+# The VPS server's tailnet IP (100.64.x.x). Unknown until the server has joined
+# the tailnet once; fill it in, then re-run for the worker. Headscale allocates
+# sequentially, so the first node is usually 100.64.0.1.
+k3s_cp_tailscale_ip: ""
+
+# vault_k3s_token            -> cluster join secret (always required)
+# vault_tailscale_preauth_key -> Headscale pre-auth key (only when k3s_enable_vpn)

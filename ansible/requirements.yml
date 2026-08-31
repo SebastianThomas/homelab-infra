@@ -1,0 +1,11 @@
+---
+# Collections used by this repo.
+#
+# Both ship bundled with the full `ansible` package (pip install ansible), so
+# you only need this file if you installed `ansible-core` on its own:
+#
+#   ansible-galaxy collection install -r requirements.yml
+#
+collections:
+  - name: community.general      # roles/firewall (ufw module)
+  - name: ansible.posix          # reserved for future use (sysctl, mount, ...)

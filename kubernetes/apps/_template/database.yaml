@@ -1,0 +1,34 @@
+# Optional. Delete this file and its line in kustomization.yaml if the app has
+# no database.
+#
+# The operator creates Secret `myapp-db-app` with keys username / password /
+# dbname / host / port / uri / jdbc-uri. The app repo's Deployment reads it:
+#   env:
+#     - name: DATABASE_URL
+#       valueFrom: { secretKeyRef: { name: myapp-db-app, key: uri } }
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: myapp-db
+  namespace: myapp
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: postgresql-minimal-trixie
+    major: 18
+  storage:
+    size: 5Gi
+    storageClass: local-path
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  bootstrap:
+    initdb:
+      database: myapp
+      owner: myapp
+  # PostGIS / pgvector / pgaudit / timescaledb-oss:
+  # postgresql:
+  #   extensions:
+  #     - name: postgis

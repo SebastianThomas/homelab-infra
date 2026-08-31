@@ -1,0 +1,39 @@
+# --- Cluster credentials --------------------------------------------------
+# kubeconfig fetched from the control plane (contains cluster-admin creds).
+/kubeconfig/
+*.kubeconfig
+
+# --- Secrets -------------------------------------------------------------
+# vault.yml is never committed. In CI the provision workflow writes it from
+# GitHub Environment secrets; locally you create it yourself (encrypted with
+# ansible-vault) - see the README.
+/ansible/group_vars/all/vault.yml
+**/vault-password
+**/.vault_pass
+.vault_pass
+*.vault-pass
+*.decrypted.yml
+
+# --- Kubernetes secrets ------------------------------------------------
+# Real Secret manifests are never committed; only the *.example.yaml is.
+kubernetes/**/*secret*.yaml
+!kubernetes/**/*secret*.example.yaml
+
+# --- Ansible runtime -------------------------------------------------
+*.retry
+ansible/*.log
+.ansible/
+
+# --- Python (optional local venv) ---------------------------------
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# --- Editors / OS ---------------------------------------------
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

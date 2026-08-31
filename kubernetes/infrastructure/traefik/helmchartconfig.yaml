@@ -1,0 +1,26 @@
+# Tunes the Traefik that K3s bundles (do not `disable: traefik` in the K3s
+# config - this layers on top of it). K3s's helm-controller merges this with
+# the packaged chart values and redeploys Traefik.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # The Tailscale control protocol is a long-lived POST that upgrades the
+    # connection. Traefik's default 60s readTimeout would cut it - disable the
+    # responding timeouts on the HTTPS entrypoint.
+    ports:
+      websecure:
+        transport:
+          respondingTimeouts:
+            readTimeout: 0
+            writeTimeout: 0
+            idleTimeout: 0
+    # Preserve the client source IP (best effort with K3s ServiceLB) so
+    # headscale logs real addresses. headscale trusts the pod CIDR via
+    # `trusted_proxies`.
+    service:
+      spec:
+        externalTrafficPolicy: Local

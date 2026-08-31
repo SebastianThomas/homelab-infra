@@ -1,0 +1,36 @@
+---
+# Entry point:  ansible-playbook site.yml
+#
+# Play order matters:
+#   1. common (+ firewall on servers) - base OS config, every host
+#   2. k3s_cp     - install / upgrade the K3s server (SQLite datastore)
+#   3. k3s_workers - install K3s agents and join them (skipped while empty)
+
+- name: Base host configuration
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - common
+
+- name: Host firewall (K3s servers / public nodes)
+  hosts: k3s_cp
+  become: true
+  gather_facts: true
+  roles:
+    - role: firewall
+      when: firewall_enabled | bool
+
+- name: K3s control plane (server)
+  hosts: k3s_cp
+  become: true
+  gather_facts: true
+  roles:
+    - k3s_cp
+
+- name: K3s workers (agents)
+  hosts: k3s_workers
+  become: true
+  gather_facts: true
+  roles:
+    - k3s_worker

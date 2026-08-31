@@ -1,0 +1,24 @@
+---
+# ===========================================================================
+# TEMPLATE for group_vars/all/vault.yml (which is git-ignored and never
+# committed).
+#
+# CI: the `provision` workflow writes vault.yml from GitHub Environment secrets
+#     (K3S_TOKEN, TS_PREAUTH_KEY) - you do not create it there.
+#
+# Local runs:
+#     cp group_vars/all/vault.example.yml group_vars/all/vault.yml
+#     # put real values in, then:
+#     ansible-vault encrypt group_vars/all/vault.yml
+#     ansible-playbook site.yml --ask-vault-pass
+# ===========================================================================
+
+# K3s cluster join token. Treat like a root password.
+#   openssl rand -hex 32
+vault_k3s_token: "REPLACE_ME"
+
+# Phase 2 only: a Headscale pre-auth key for the nodes' embedded Tailscale.
+# Create once Headscale is running:
+#   kubectl -n headscale exec deploy/headscale -- \
+#     headscale preauthkeys create --user <user> --reusable --expiration 168h
+vault_tailscale_preauth_key: "REPLACE_ME_PHASE_2"

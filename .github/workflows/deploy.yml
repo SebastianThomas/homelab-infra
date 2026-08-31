@@ -1,0 +1,59 @@
+name: deploy
+
+# Applies kubernetes/ to the cluster (ordered, idempotent). Runs on push to
+# main for kubernetes/** and on demand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "kubernetes/**"
+      - ".github/workflows/deploy.yml"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  kubectl:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v5
+
+      - uses: ./.github/actions/setup-ssh
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          tailscale-authkey: ${{ secrets.TS_AUTHKEY }}
+          headscale-url: ${{ secrets.HEADSCALE_URL }}
+
+      - uses: ./.github/actions/kubeconfig
+        with:
+          ssh-user: ${{ secrets.ANSIBLE_SSH_USER }}
+          ssh-host: ${{ secrets.SSH_HOST }}
+          kube-api: ${{ secrets.KUBE_API }}
+
+      - name: Ensure the Headplane secret
+        env:
+          COOKIE: ${{ secrets.HEADPLANE_COOKIE_SECRET }}
+          API_KEY: ${{ secrets.HEADPLANE_API_KEY }}
+        run: |
+          kubectl create namespace headscale --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${COOKIE}" ] && [ -n "${API_KEY}" ]; then
+            kubectl -n headscale create secret generic headplane-secret \
+              --from-literal=cookie_secret="${COOKIE}" \
+              --from-literal=api_key="${API_KEY}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          else
+            echo "::warning::HEADPLANE_COOKIE_SECRET / HEADPLANE_API_KEY not set - Headplane stays NotReady. See kubernetes/infrastructure/headscale/README.md"
+          fi
+
+      - name: Apply infrastructure + apps
+        run: kubernetes/bootstrap.sh
+
+      - name: Roll Headplane to pick up the secret
+        run: kubectl -n headscale rollout restart deploy/headplane || true
