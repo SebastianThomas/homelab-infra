@@ -106,7 +106,7 @@
 
     - name: Ensure ~/.kube exists for {{ ansible_user }}
       ansible.builtin.file:
-        path: "{{ getent_passwd[ansible_user][4] }}/.kube"
+        path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.kube"
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
@@ -115,7 +115,7 @@
     - name: Install k3s.yaml as ~/.kube/config
       ansible.builtin.copy:
         src: /etc/rancher/k3s/k3s.yaml
-        dest: "{{ getent_passwd[ansible_user][4] }}/.kube/config"
+        dest: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.kube/config"
         remote_src: true
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
