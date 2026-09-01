@@ -1,12 +1,7 @@
 ---
-k3s_install_script_url: "https://get.k3s.io"
-k3s_install_script_path: "/usr/local/bin/k3s-install.sh"
-
 # API endpoint the agent joins through. With the VPN substrate enabled this is
 # the server's tailnet IP (k3s_cp_tailscale_ip); otherwise its public address.
 k3s_worker_server: >-
-  {% if k3s_enable_vpn | bool and k3s_cp_tailscale_ip -%}
-  https://{{ k3s_cp_tailscale_ip }}:{{ k3s_api_port }}
-  {%- else -%}
-  https://{{ hostvars[groups['k3s_cp'][0]].ansible_host }}:{{ k3s_api_port }}
-  {%- endif %}
+  https://{{ k3s_cp_tailscale_ip
+  if (k3s_enable_vpn | bool and k3s_cp_tailscale_ip)
+  else hostvars[groups['k3s_cp'][0]].ansible_host }}:{{ k3s_api_port }}

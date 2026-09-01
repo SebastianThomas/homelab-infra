@@ -1,7 +1,4 @@
 ---
-k3s_install_script_url: "https://get.k3s.io"
-k3s_install_script_path: "/usr/local/bin/k3s-install.sh"
-
 # Enable the PodNodeSelector + PodTolerationRestriction admission plugins so an
 # app namespace can pin its workloads to a node via annotations (see
 # kubernetes/apps/). Both are no-ops on namespaces without those annotations.

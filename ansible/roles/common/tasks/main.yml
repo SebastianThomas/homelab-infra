@@ -24,8 +24,8 @@
   changed_when: false
 
 - name: Set the timezone
-  ansible.builtin.command: "timedatectl set-timezone {{ timezone }}"
-  when: common_current_tz.stdout | trim != timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ common_timezone }}"
+  when: common_current_tz.stdout | trim != common_timezone
   changed_when: true
 
 # --- Swap ---------------------------------------------------------------

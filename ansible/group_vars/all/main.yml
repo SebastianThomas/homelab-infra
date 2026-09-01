@@ -38,8 +38,12 @@ homelab_label_domain: "homelab.sthomas.ch"
 # (no tailnet yet) comment this out so it falls back to the public name.
 k3s_cp_kubeconfig_server: "https://kube-cp-01.ts.{{ cluster_domain }}:6443"
 
+# K3s install script - shared by the k3s_cp and k3s_worker roles.
+k3s_install_script_url: "https://get.k3s.io"
+k3s_install_script_path: "/usr/local/bin/k3s-install.sh"
+
 # --- Base OS (common role) --------------------------------------------
-timezone: "Europe/Zurich"
+common_timezone: "Europe/Zurich"
 common_packages:
   - curl
   - ca-certificates

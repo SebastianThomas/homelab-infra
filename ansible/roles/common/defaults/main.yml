@@ -1,6 +1,6 @@
 ---
 # Overridable defaults. Real values come from group_vars/all/main.yml.
-timezone: "UTC"
+common_timezone: "UTC"
 common_packages:
   - curl
   - ca-certificates
