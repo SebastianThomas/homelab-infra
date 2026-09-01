@@ -9,7 +9,7 @@ resources:
   - headscale-service.yaml
   - headplane-deployment.yaml
   - headplane-service.yaml
-  - ingress.yaml
+  - httproute.yaml
 
 # Node pinning: via the namespace annotation in namespace.yaml.
 

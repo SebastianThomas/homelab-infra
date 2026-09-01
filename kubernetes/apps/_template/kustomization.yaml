@@ -8,4 +8,4 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - database.yaml       # delete this line if the app has no database
-  - ingress.yaml
+  - httproute.yaml

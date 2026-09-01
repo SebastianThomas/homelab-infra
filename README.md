@@ -4,9 +4,9 @@ Infrastructure-as-code for a small self-hosted **K3s** cluster.
 
 - **Ansible** (`ansible/`) prepares the Debian hosts and installs a
   version-pinned K3s. Nothing else.
-- **Kubernetes manifests** (`kubernetes/`) run on the cluster: ingress/TLS,
-  CloudNativePG, a self-hosted **Headscale** (Tailscale control server) + web
-  UI, and your apps.
+- **Kubernetes manifests** (`kubernetes/`) run on the cluster: Gateway API
+  routing / TLS, CloudNativePG, a self-hosted **Headscale** (Tailscale control
+  server) + web UI, and your apps.
 - **GitHub Actions** (`.github/workflows/`) drive both — `provision` (Ansible)
   and `deploy` (`kubectl apply`). Secrets live in a GitHub **Environment**.
 
@@ -132,14 +132,18 @@ Run the **`deploy`** workflow (or `kubernetes/bootstrap.sh` locally). It applies
 in order: Traefik config → cert-manager + issuers → CloudNativePG + catalog →
 Headscale/Headplane → the platform scaffold of each `apps/<name>/`.
 
-### 5b. Public HTTP routing
+### 5b. HTTP routing
 
-The Strato VM already runs nginx + certbot for other sites, so **nginx is the
-public edge** and reverse-proxies `*.homelab.sthomas.ch` to Traefik's pinned
-`ClusterIP` (`10.43.66.94:80` — `service.spec.type: ClusterIP`, so klipper stops
-holding the host's `:80`/`:443`). Add the nginx vhost + cert per
-[`docs/nginx-edge.md`](docs/nginx-edge.md). That doc also has the one-step flip
-to Traefik-as-edge once the legacy sites are migrated.
+Inside the cluster, routing is **Gateway API** — `HTTPRoute` objects attach to a
+shared `traefik-gateway` served by the K3s-bundled Traefik (Gateway API CRDs
+ship with K3s). See [`docs/gateway-api.md`](docs/gateway-api.md).
+
+At the edge: the Strato VM already runs nginx + certbot for other sites, so
+**nginx is the public edge** and reverse-proxies `*.homelab.sthomas.ch` to
+Traefik's pinned `ClusterIP` (`10.43.66.94:80` — `service.spec.type: ClusterIP`,
+so klipper stops holding the host's `:80`/`:443`). Add the nginx vhost + cert per
+[`docs/nginx-edge.md`](docs/nginx-edge.md), which also has the one-step flip to
+Traefik-as-edge once the legacy sites are migrated.
 
 ### 6. Finish Headscale
 
@@ -186,7 +190,7 @@ Apps are **split across two repos** so you can ship a new version from the app's
 own repo with **no commit here**:
 
 - **This repo** owns the platform side per app — namespace, node placement,
-  a scoped `deployer` ServiceAccount, database, ingress. Set it up once:
+  a scoped `deployer` ServiceAccount, database, `HTTPRoute`. Set it up once:
   `cp -r kubernetes/apps/_template kubernetes/apps/<name>`, adjust, push.
 - **The app's repo** owns its `Deployment` + `Service` and deploys itself on
   release via the reusable composite action
@@ -200,8 +204,8 @@ Full walkthrough + templates: [`kubernetes/apps/README.md`](kubernetes/apps/READ
 
 | | |
 |---|---|
-| `kubernetes/infrastructure/` | cluster-wide services (ingress tuning, TLS, DB operator, Headscale) |
-| `kubernetes/apps/<name>/` | the platform side of an app (namespace, RBAC, database, ingress) |
+| `kubernetes/infrastructure/` | cluster-wide services (Gateway/Traefik, TLS, DB operator, Headscale) |
+| `kubernetes/apps/<name>/` | the platform side of an app (namespace, RBAC, database, `HTTPRoute`) |
 | the app's own repo | its `Deployment` / `Service` and released version |
 
 Ansible never deploys anything under `kubernetes/`.

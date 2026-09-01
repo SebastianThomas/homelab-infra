@@ -7,11 +7,11 @@ here it's plain `kubectl` / Kustomize.
 kubernetes/
 ├── bootstrap.sh          # ordered, idempotent apply of infrastructure/ + app scaffolding
 ├── infrastructure/       # cluster-wide platform services
-│   ├── traefik/          # tunes the bundled K3s Traefik
+│   ├── traefik/          # tunes the bundled K3s Traefik; enables the Gateway API provider
 │   ├── cert-manager/     # Let's Encrypt ClusterIssuers (HTTP-01)
 │   ├── cloudnative-pg/   # Postgres operator image catalog
 │   └── headscale/        # Headscale control server + Headplane UI
-└── apps/                 # platform side of each app (namespace/RBAC/db/ingress);
+└── apps/                 # platform side of each app (namespace/RBAC/db/HTTPRoute);
     ├── _template/        #   the Deployment+Service live in the app's own repo
     └── <name>/           # see apps/README.md
 ```
@@ -43,8 +43,8 @@ Upstream operator versions are pinned at the top of `bootstrap.sh`
 
 | Kind of thing | Goes in |
 |---|---|
-| Ingress tuning, TLS issuers, operators, cluster-wide policy | `infrastructure/` |
-| An app's namespace / RBAC / database / ingress | `apps/<name>/` (this repo) |
+| Gateway/Traefik tuning, TLS issuers, operators, cluster-wide policy | `infrastructure/` |
+| An app's namespace / RBAC / database / `HTTPRoute` | `apps/<name>/` (this repo) |
 | An app's `Deployment` / `Service` / released version | the **app's own repo** |
 
 Apps are split across two repos so versions ship without a commit here — see

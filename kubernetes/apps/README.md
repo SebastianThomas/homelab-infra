@@ -4,7 +4,7 @@ An app is split across **two repos**:
 
 | Side | Lives in | Owns | Changes |
 |---|---|---|---|
-| **Platform** | `homelab-infra/kubernetes/apps/<name>/` | namespace, node placement, RBAC (a `deployer` ServiceAccount), database, ingress | rarely — only when the app's *surroundings* change |
+| **Platform** | `homelab-infra/kubernetes/apps/<name>/` | namespace, node placement, RBAC (a `deployer` ServiceAccount), database, `HTTPRoute` | rarely — only when the app's *surroundings* change |
 | **Workload** | the app's **own repo** (e.g. `SebastianThomas/<name>`) | `Deployment`, `Service`, app `ConfigMap`s | every release — the app repo deploys itself, pinning whatever version it wants |
 
 So `homelab-infra` is **not** the source of truth for what version is running.
@@ -22,12 +22,16 @@ grep -rl myapp kubernetes/apps/myapp | xargs sed -i '' 's/myapp/<name>/g'   # (L
 # edit database.yaml (or delete it + its kustomization line)
 ```
 
-The ingress host is `<name>.homelab.sthomas.ch` — already covered by the
+The route host is `<name>.homelab.sthomas.ch` — already covered by the
 `*.homelab.sthomas.ch` wildcard, so no DNS change (add a CNAME per app only if
-you don't run a wildcard).
+you don't run a wildcard). The `HTTPRoute` attaches to the shared
+`traefik-gateway`; see [`docs/gateway-api.md`](../../docs/gateway-api.md).
+
+In nginx-edge mode you also add the hostname to the host nginx vhost + cert —
+[`docs/nginx-edge.md`](../../docs/nginx-edge.md).
 
 Commit + push → the `deploy` workflow applies the namespace, RBAC, DB and
-ingress. Then hand the app repo its credentials (GitHub Environment / repo
+route. Then hand the app repo its credentials (GitHub Environment / repo
 secrets on the **app** repo):
 
 ```bash
@@ -98,5 +102,5 @@ by the user". Public repos need nothing.)
 - **Roll back:** run the app repo's `release` workflow (`workflow_dispatch`)
   against the old tag, or `kubectl -n <name> rollout undo deployment/<name>`.
 - **What if `homelab-infra`'s `deploy` runs?** It only re-applies the platform
-  scaffold (namespace/RBAC/DB/ingress). It never touches the Deployment, so it
+  scaffold (namespace/RBAC/DB/HTTPRoute). It never touches the Deployment, so it
   can't revert a version.

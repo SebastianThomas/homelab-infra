@@ -15,7 +15,7 @@ description: >
         # headscale-url: ${{ secrets.HEADSCALE_URL }}
 
   The namespace, RBAC (the `deployer` SA whose token this uses), database and
-  ingress are provisioned once by homelab-infra (kubernetes/apps/<app>/).
+  HTTPRoute are provisioned once by homelab-infra (kubernetes/apps/<app>/).
   Manifests in `path` may reference the literal `${APP_IMAGE}` - it is replaced
   with `image` before apply.
 

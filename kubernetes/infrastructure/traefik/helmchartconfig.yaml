@@ -2,7 +2,17 @@
 # on top). K3s's helm-controller merges this with the packaged values.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# MODE: nginx is the public edge. The Strato VM already runs nginx + certbot for
+# ROUTING: Gateway API. Traefik v3 is a native Gateway controller; the Gateway
+# API CRDs (v1.5.1, standard channel) are already installed by K3s's own
+# `traefik-crd` release and version-locked to this Traefik. We just turn the
+# provider on, and the chart creates:
+#   - GatewayClass  "traefik"          (controller traefik.io/gateway-controller)
+#   - Gateway       "traefik-gateway"  in kube-system, one HTTP listener (:8000)
+# App routes are `HTTPRoute` objects in the app's namespace with
+#   parentRefs: [{ name: traefik-gateway, namespace: kube-system }]
+# (the listener allows routes from every namespace).
+#
+# EDGE: nginx is the public edge. The Strato VM already runs nginx + certbot for
 # a dozen *.sthomas.ch sites (proxying to local docker-compose apps), so Traefik
 # is NOT public here:
 #
@@ -18,7 +28,7 @@
 # address, so Traefik binds the pod's own loopback and nothing can reach it.
 #
 # Full picture + the nginx vhost + the "flip to Traefik-as-edge" checklist:
-#   docs/nginx-edge.md
+#   docs/nginx-edge.md ; Gateway API notes: docs/gateway-api.md
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
@@ -33,6 +43,24 @@ spec:
         # Pinned so nginx's proxy_pass target never moves. This is the address
         # K3s already allocated; keeping it explicit survives a svc recreate.
         clusterIP: "10.43.66.94"
+
+    # Gateway API provider (Traefik's Ingress provider stays on too - cert-manager
+    # still solves HTTP-01 with a temporary Ingress).
+    providers:
+      kubernetesGateway:
+        enabled: true
+    gatewayClass:
+      enabled: true
+    gateway:
+      enabled: true
+      listeners:
+        web:
+          port: 8000            # must match ports.web.port (the `web` entrypoint)
+          protocol: HTTP
+          # Let HTTPRoutes in any namespace (headscale/, apps/*) attach.
+          namespacePolicy:
+            from: All
+
     ports:
       web:
         # nginx reaches Traefik via the ClusterIP, so the connection is SNAT'd

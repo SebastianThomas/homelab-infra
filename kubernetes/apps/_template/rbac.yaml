@@ -24,8 +24,10 @@ rules:
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
+  # The HTTPRoute is normally platform-owned (httproute.yaml), but an app may
+  # manage its own from its repo if route changes should ship with releases.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]

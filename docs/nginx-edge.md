@@ -12,9 +12,14 @@ reachable only on its ClusterIP.
 ```
 Internet :80/:443
   → nginx (host, certbot)
-      ├─ genie-web / kochbuch / … .sthomas.ch   → localhost:<docker port>        (unchanged)
-      └─ *.homelab.sthomas.ch                    → 10.43.66.94:80  → Traefik → Ingress → Service → Pod
+      ├─ genie-web / kochbuch / … .sthomas.ch   → localhost:<docker port>          (unchanged)
+      └─ *.homelab.sthomas.ch                    → 10.43.66.94:80  → Traefik → HTTPRoute → Service → Pod
 ```
+
+Routing inside the cluster is **Gateway API** (`HTTPRoute` → the shared
+`traefik-gateway`) — see [`gateway-api.md`](gateway-api.md). That's independent
+of this edge setup: nginx proxies to the same Traefik `web` entrypoint either
+way.
 
 `10.43.66.94` is Traefik's **ClusterIP**, pinned in
 `infrastructure/traefik/helmchartconfig.yaml`. Reachable from the host because
@@ -124,7 +129,7 @@ The `proxy_*` timeout/upgrade/buffering directives matter for **headscale** (and
 websocket apps). Plain HTTP apps don't need them — for those a bare
 `location / { proxy_pass http://10.43.66.94:80; proxy_set_header Host $host; ... }`
 is enough. Traefik does the per-host + per-path routing from there via the
-Ingress objects.
+`HTTPRoute` objects.
 
 If you ever need to re-check the ClusterIP:
 
@@ -158,24 +163,27 @@ Existing sites: `curl -sI https://genie-web.sthomas.ch` etc. — back to normal.
 
 ## Adding a cluster app (in this mode)
 
-1. `kubernetes/apps/<name>/` as usual (its `Ingress` still uses
-   `ingressClassName: traefik`; the `tls:` block + `cert-manager.io` annotation
-   are inert here but harmless — leave or drop them).
+1. `kubernetes/apps/<name>/` as usual — its `HTTPRoute` attaches to
+   `traefik-gateway` (nothing about it is edge-specific).
 2. Add `<name>.homelab.sthomas.ch` to the nginx `homelab-cluster` vhost (or rely
    on a `*.homelab.sthomas.ch` block) and `certbot --expand -d <name>...`.
 3. DNS: `<name>.homelab.sthomas.ch` → the VM (covered by a wildcard if you have one).
 
 ## Flip to Traefik-as-edge (later, when the legacy docker apps are gone)
 
-1. `infrastructure/traefik/helmchartconfig.yaml`: `service.spec.type:
-   LoadBalancer` (drop the pinned `clusterIP`); `ports.web` → add `hostPort: 80`,
-   `ports.websecure` → add `hostPort: 443` (no `hostIP`).
-2. Ensure every cluster `Ingress` has `tls:` + `cert-manager.io/cluster-issuer:
-   letsencrypt-prod` (re-add if you dropped them). cert-manager is still
-   installed and issues per-host certs.
-3. `deploy`. Confirm `https://headscale.homelab.sthomas.ch` serves a
+1. `infrastructure/traefik/helmchartconfig.yaml`:
+   - `service.spec.type: LoadBalancer` (drop the pinned `clusterIP`)
+   - `ports.web` → add `hostPort: 80`; `ports.websecure` → add `hostPort: 443`
+     (no `hostIP`)
+   - add a `websecure` HTTPS listener to `gateway.listeners` with
+     `certificateRefs` pointing at a Secret, and annotate the Gateway with
+     `cert-manager.io/cluster-issuer: letsencrypt-prod` — cert-manager then
+     fills that Secret (HTTP-01 solver still uses a temporary Ingress, which
+     Traefik's Ingress provider serves). Details in
+     [`gateway-api.md`](gateway-api.md#tls-at-the-flip).
+2. `deploy`. Confirm `https://headscale.homelab.sthomas.ch` serves a
    cert-manager cert.
-4. `sudo systemctl disable --now nginx certbot.timer`.
+3. `sudo systemctl disable --now nginx certbot.timer`.
 
-If you kept the `/.well-known/acme-challenge/` forward in step 2, cert-manager
-has been renewing its certs all along and there's zero HTTPS gap at the flip.
+If you kept the `/.well-known/acme-challenge/` forward in step 1, cert-manager
+can pre-warm its certs before the flip for a zero HTTPS gap.
