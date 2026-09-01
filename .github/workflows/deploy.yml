@@ -1,4 +1,6 @@
 name: deploy
+run-name: >-
+  Deploy: ${{ github.event.head_commit.message || format('{0} @ {1}', github.actor, github.ref_name) }} · production
 
 # Applies kubernetes/ to the cluster (ordered, idempotent). Runs on push to
 # main for kubernetes/** and on demand.
