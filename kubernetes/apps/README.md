@@ -82,8 +82,9 @@ jobs:
           image: ${{ env.IMAGE }}
 ```
 
-(If `homelab-actions` is private, enable it under its Settings → Actions →
-"Accessible from repositories owned by the user".)
+(`homelab-actions` is public so `uses:` resolves from any repo/org. A private
+action repo owned by a user only resolves from that user's own repos, not from
+org repos.)
 
 Live example: [`SebastianThomas/genie-web`](https://github.com/SebastianThomas/genie-web).
 
