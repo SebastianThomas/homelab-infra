@@ -73,17 +73,17 @@ Create an Environment named **`production`** (Settings → Environments) with:
 
 | Name | Value / how |
 |---|---|
-| `SSH_PRIVATE_KEY` | private key with `sudo` SSH access to the nodes |
-| `SSH_KNOWN_HOSTS` | `ssh-keyscan homelab.sthomas.ch` output (optional but recommended) |
+| `SSH_PRIVATE_KEY` | private key with passwordless-`sudo` SSH access to the nodes |
+| `SSH_KNOWN_HOSTS` | `ssh-keyscan kube-cp-01.ts.homelab.sthomas.ch homelab.sthomas.ch` output (optional) |
 | `ANSIBLE_SSH_USER` | your SSH user, e.g. `sebas` |
-| `SSH_HOST` | `homelab.sthomas.ch` |
-| `KUBE_API` | `https://homelab.sthomas.ch:6443` |
+| `SSH_HOST` | `kube-cp-01.ts.homelab.sthomas.ch` (tailnet) — `homelab.sthomas.ch` before the tailnet exists |
+| `KUBE_API` | `https://kube-cp-01.ts.homelab.sthomas.ch:6443` (tailnet) |
 | `HEADSCALE_URL` | `https://headscale.homelab.sthomas.ch` |
 | `K3S_TOKEN` | `openssl rand -hex 32` — the cluster join secret |
-| `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (set after first deploy) |
-| `HEADPLANE_API_KEY` | `headscale apikeys create` output (set after first deploy) |
-| `TS_PREAUTH_KEY` | Headscale pre-auth key for the K3s nodes (`--reusable --expiration 100y`) — for private API access / the Pi |
-| `TS_AUTHKEY` | Headscale pre-auth key for CI runners (`--reusable --ephemeral --expiration 100y`) — runners join the tailnet when set |
+| `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (exactly 32 chars; set after first deploy) |
+| `HEADPLANE_API_KEY` | `headscale apikeys create --expiration 8760h` output (set after first deploy) |
+| `TS_PREAUTH_KEY` | Headscale pre-auth key for the K3s node — `--reusable --expiration 100y` (**not** ephemeral) |
+| `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 100y` |
 
 > GitHub masks secret values in workflow logs, so `SSH_HOST` / `KUBE_API` etc.
 > show up as `***` in run output — expected.
@@ -220,10 +220,13 @@ firewall off public `:6443`.
    - `KUBE_API` → `https://kube-cp-01.ts.homelab.sthomas.ch:6443`
    Your laptop: `tailscale switch` to the homelab profile, then re-fetch the
    kubeconfig with that host (see [Using the cluster](#using-the-cluster)).
-5. **Close public `:6443`** — in `ansible/roles/firewall/defaults/main.yml`
-   swap the `6443` rule for the tailnet-scoped one shown in its comments, run
-   `provision`. Leave `:22` public (only `provision`'s inventory `ansible_host`
-   still uses it; the deploy runner is on the tailnet).
+5. **Close public `:6443`** — the `firewall` role does this by default now:
+   `firewall_absent_rules` deletes the public `6443` rule and
+   `firewall_tailnet_iface: tailscale0` trusts the whole tailnet interface (so
+   the API, SSH-over-tailnet, etc. all work from the tailnet). Just run
+   `provision` (`limit: k3s_cp`). `:22`/`:80`/`:443` stay public. Emergency
+   access if the tailnet ever breaks: `ssh sebas@homelab.sthomas.ch` then
+   `sudo kubectl …`, or re-open with `sudo ufw allow 6443/tcp`.
 
 ## Adding kube-worker-01
 

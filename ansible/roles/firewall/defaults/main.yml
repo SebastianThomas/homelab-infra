@@ -1,18 +1,27 @@
 ---
-# ufw rules for a public K3s server. Applied only when firewall_enabled is true.
+# ufw rules for the public K3s server. Applied when firewall_enabled is true.
 #
-# Each entry: { port, proto, comment, from (optional CIDR) }
-firewall_allow_rules:
-  - { port: 22,   proto: tcp, comment: "SSH" }
-  - { port: 80,   proto: tcp, comment: "HTTP (Traefik / ACME HTTP-01)" }
-  - { port: 443,  proto: tcp, comment: "HTTPS (Traefik)" }
-  - { port: 6443, proto: tcp, comment: "Kubernetes API / K3s supervisor" }
+# NOTE: community.general.ufw is not declarative - it adds/deletes individual
+# rules and never reconciles a desired-state list. To *remove* a rule you used
+# to have, put it in firewall_absent_rules (deleted before the allow rules).
 
-# Phase 2 hardening: once the worker joins over the tailnet and you use the
-# tailnet for kubectl, you can drop the public 22/6443 rules above and instead
-# allow them only from the tailnet, e.g.:
-#   - { port: 22,   proto: tcp, from: "100.64.0.0/10", comment: "SSH via tailnet" }
-#   - { port: 6443, proto: tcp, from: "100.64.0.0/10", comment: "kube API via tailnet" }
+firewall_allow_rules:
+  - { port: 22,  proto: tcp, comment: "SSH" }
+  - { port: 80,  proto: tcp, comment: "HTTP (Traefik / ACME HTTP-01)" }
+  - { port: 443, proto: tcp, comment: "HTTPS (Traefik)" }
+  # The Kubernetes API (6443) is reachable only over the tailnet - see
+  # firewall_tailnet_iface. Add it back here as `{ port: 6443, proto: tcp }`
+  # if you ever need public API access again.
+
+# Rules to delete if present (formerly-public ports that are now tailnet-only).
+firewall_absent_rules:
+  - { port: 6443, proto: tcp }
+
+# Trust everything arriving on the Tailscale interface (it is already an
+# authenticated WireGuard mesh). This is how the tailnet - your laptop, CI
+# runners, the Pi - reaches the API, SSH, etc. Set "" to skip (e.g. a node not
+# on the tailnet).
+firewall_tailnet_iface: "tailscale0"
 
 firewall_default_incoming: deny
 firewall_default_outgoing: allow

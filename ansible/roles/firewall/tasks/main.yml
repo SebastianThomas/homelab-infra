@@ -14,6 +14,24 @@
     direction: outgoing
     policy: "{{ firewall_default_outgoing }}"
 
+- name: Remove superseded ufw rules
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ item.from | default('any') }}"
+    delete: true
+  loop: "{{ firewall_absent_rules | default([]) }}"
+  loop_control:
+    label: "delete {{ item.port }}/{{ item.proto }} from {{ item.from | default('any') }}"
+
+- name: Trust the Tailscale interface
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_tailnet_iface }}"
+  when: firewall_tailnet_iface | length > 0
+
 - name: Allow configured ports
   community.general.ufw:
     rule: allow

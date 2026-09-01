@@ -33,6 +33,11 @@ cluster_domain: "homelab.sthomas.ch"
 # Prefix for Kubernetes node labels / taints we manage.
 homelab_label_domain: "homelab.sthomas.ch"
 
+# The Kubernetes API is reachable only over the tailnet (public :6443 is
+# firewalled off). Fetched kubeconfigs point here. For a first-ever bootstrap
+# (no tailnet yet) comment this out so it falls back to the public name.
+k3s_cp_kubeconfig_server: "https://kube-cp-01.ts.{{ cluster_domain }}:6443"
+
 # --- Base OS (common role) --------------------------------------------
 timezone: "Europe/Zurich"
 common_packages:
