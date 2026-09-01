@@ -1,0 +1,45 @@
+name: Lint
+description: >
+  Every static check for the repo in one place: ansible syntax-check +
+  ansible-lint + yamllint, `kubectl kustomize` of every overlay, and shellcheck.
+  Run `actions/checkout` before this. Used by the `lint` workflow (on PRs) and
+  as a gate job in `deploy` / `provision`.
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-ansible
+      with:
+        extra-packages: ansible-lint yamllint
+
+    - uses: azure/setup-kubectl@v5
+
+    - name: ansible syntax-check
+      shell: bash
+      working-directory: ansible
+      run: ansible-playbook site.yml --syntax-check
+
+    - name: ansible-lint
+      shell: bash
+      working-directory: ansible
+      run: ansible-lint
+
+    - name: yamllint
+      shell: bash
+      run: yamllint .
+
+    - name: kustomize (build every overlay)
+      shell: bash
+      run: |
+        rc=0
+        while IFS= read -r k; do
+          grep -q 'kind: Component' "$k" && continue
+          d=$(dirname "$k")
+          echo "== $d"
+          kubectl kustomize "$d" >/dev/null || { echo "::error::kustomize build failed: $d"; rc=1; }
+        done < <(find kubernetes -name kustomization.yaml | sort)
+        exit $rc
+
+    - name: shellcheck
+      shell: bash
+      run: git ls-files '*.sh' | xargs -r shellcheck

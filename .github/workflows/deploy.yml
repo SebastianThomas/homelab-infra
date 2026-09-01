@@ -18,7 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/lint
+
   kubectl:
+    needs: lint
     runs-on: ubuntu-latest
     environment: production
     steps:
