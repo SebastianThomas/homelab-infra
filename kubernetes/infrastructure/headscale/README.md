@@ -48,22 +48,113 @@ API key to log in.
 
 ## Day-to-day (headscale CLI)
 
-gRPC is bound to localhost, so use the pod:
+gRPC is bound to localhost, so run the CLI in the pod:
 
 ```bash
 hs() { kubectl -n headscale exec -i deploy/headscale -- headscale "$@"; }
 
 hs users create alice
-hs preauthkeys create --user alice --reusable --expiration 24h
+hs users list                 # note the numeric ID
 hs nodes list
 hs routes list
 ```
 
-Register a machine:
+## Creating a pre-auth key
+
+`headscale preauthkeys create` takes the user **ID** (a number), not the name.
 
 ```bash
-tailscale up --login-server=https://headscale.homelab.sthomas.ch --authkey=<key>
+hs users list
 ```
+
+```bash
+hs preauthkeys create --user <ID> --reusable --expiration 24h
+```
+
+One-liner (needs `jq` locally):
+
+```bash
+hs_uid=$(kubectl -n headscale exec deploy/headscale -- headscale users list -o json | jq -r '.[]|select(.name=="alice").id')
+kubectl -n headscale exec deploy/headscale -- headscale preauthkeys create --user "$hs_uid" --reusable --expiration 24h
+```
+
+List / expire keys:
+
+```bash
+hs preauthkeys list --user <ID>
+hs preauthkeys expire --user <ID> --key <KEY>
+```
+
+Or do all of this in Headplane: **Users** → add → the user's ⋯ menu →
+**pre-auth keys**.
+
+## Connecting a client
+
+### One `tailscaled`, multiple tailnets as profiles (recommended)
+
+Use `tailscale login` — it authenticates the machine **without** reconfiguring
+the current profile. A different `--login-server` = a new profile; existing
+profiles (e.g. a work tailnet) are left alone.
+
+```bash
+tailscale login --login-server=https://headscale.homelab.sthomas.ch --auth-key=<KEY> --hostname=<name>
+```
+
+Then move between tailnets — each profile keeps its own control server, node,
+DNS and routes:
+
+```bash
+tailscale switch --list
+```
+
+```bash
+tailscale switch <account>          # e.g. "thomas@ubique.ch" or the profile ID
+```
+
+Check which one is active:
+
+```bash
+tailscale status ; tailscale debug prefs | grep -i controlurl
+```
+
+If `tailscale login` complains that changing settings needs every non-default
+flag re-listed, it isn't recognising this as a new profile — fall back to
+`tailscale up --reset --login-server=… --auth-key=… --hostname=…` (only `up`
+has `--reset`; on a plain daemon it still creates the new profile).
+
+> **This does not work through the macOS Tailscale GUI app.** That app pins the
+> control URL for its own `tailscaled` and ignores CLI `--login-server` — your
+> command silently hits the *other* tailnet ("invalid pre auth key" from the
+> wrong server; `--reset` logs you out of it). On macOS, either run **only**
+> Homebrew's `tailscaled` (`sudo brew services start tailscale`, no GUI app —
+> the profile/`switch` flow above then works), or keep the GUI app and use the
+> separate-daemon method below.
+
+### macOS: keep the work GUI app, add homelab as a second daemon
+
+A second `tailscaled` with its own state — cannot touch the app:
+
+```bash
+brew install tailscale
+sudo mkdir -p /var/lib/tailscaled-homelab
+sudo /opt/homebrew/bin/tailscaled --tun=userspace-networking --socket=/tmp/ts-homelab.sock --statedir=/var/lib/tailscaled-homelab --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055
+```
+
+```bash
+/opt/homebrew/bin/tailscale --socket=/tmp/ts-homelab.sock up --login-server=https://headscale.homelab.sthomas.ch --auth-key=<KEY> --hostname=<name>
+```
+
+Reach homelab-tailnet hosts through the proxy
+(`ALL_PROXY=socks5://localhost:1055 …`); stop it with `sudo pkill -f ts-homelab.sock`.
+
+> The Raspberry Pi is **not** connected by either method — K3s's `--vpn-auth`
+> joins it automatically in Phase 2 using `TS_PREAUTH_KEY`.
+
+> **"invalid pre auth key" checklist:** `tailscale debug prefs | grep -i
+> controlurl` must show *your* Headscale URL (if not, `--login-server` didn't
+> apply — you're on the wrong daemon).
+> `kubectl -n headscale exec deploy/headscale -- headscale preauthkeys list`
+> must show the key with `Used=false` and a future expiry.
 
 ## Editing DNS / tailnet records
 

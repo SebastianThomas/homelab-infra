@@ -204,8 +204,10 @@ Ansible never deploys anything under `kubernetes/`.
 The Pi joins the K3s pod network over the Headscale tailnet (K3s's built-in
 `--vpn-auth` Tailscale integration). Do this only after Headscale is up.
 
-1. Create a reusable Headscale pre-auth key; put it in the `TS_PREAUTH_KEY`
-   secret (and `TS_AUTHKEY` for the CI runner).
+1. Create a reusable Headscale pre-auth key
+   ([how](kubernetes/infrastructure/headscale/README.md#creating-a-pre-auth-key));
+   put it in the `TS_PREAUTH_KEY` secret (and `TS_AUTHKEY` for the CI runner —
+   the same key works for both).
 2. Install Tailscale on the VPS side by setting `k3s_enable_vpn: true` in
    `group_vars/all/main.yml` and running `provision` with `limit: k3s_cp`. Read
    the server's tailnet IP (`kubectl get node kube-cp-01 -o wide`, or

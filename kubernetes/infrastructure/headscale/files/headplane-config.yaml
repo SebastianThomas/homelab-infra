@@ -21,13 +21,11 @@ headscale:
   config_path: "/etc/headscale/config.yaml"
   api_key_path: "/etc/headplane/secrets/api_key"
 
-integration:
-  agent:
-    enabled: false
-  docker:
-    enabled: false
-  kubernetes:
-    enabled: false
+# No `integration:` block on purpose. Headplane 0.7.x requires
+# integration.kubernetes.pod_name whenever that block exists (even disabled),
+# and an absent block already means "limited mode" (manage nodes/users/keys/
+# routes/DB-mode ACLs via the API; config edits stay in git). To switch to
+# single-Pod Kubernetes integration later, see this component's README.
 
 # OIDC is not configured. Log in to the dashboard by pasting a headscale API
 # key. To add OIDC later, set `oidc:` here (issuer, client_id,
