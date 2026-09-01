@@ -10,6 +10,7 @@ Cluster-wide platform services. Applied by
 | `cloudnative-pg/` | `ClusterImageCatalog` (`postgresql-minimal-trixie`, PG 17 + 18) | Operator from pinned upstream manifest. PG 18 entry carries `postgis` / `pgvector` / `pgaudit` / `timescaledb-oss` as extension images. No backups configured. |
 | `headscale/` | Headscale control server + Headplane web UI | Single `headscale` namespace, pinned to the VPS. See [`headscale/README.md`](headscale/README.md). |
 | `monitoring/` | VictoriaMetrics + VictoriaLogs + Grafana | The lightweight kube-prometheus-stack equivalent, installed via two K3s `HelmChart` CRs (helm-controller, no `helm` CLI). Grafana at `grafana.homelab.sthomas.ch`. See [`monitoring/README.md`](monitoring/README.md). |
+| `app-deployer/` | one `app-deployer` SA + `ClusterRole` (namespace `ci`) | The shared identity every app repo deploys itself with — its token is `KUBE_TOKEN` for all of them. Scoped to app resources (Deployments/Services/HTTPRoutes/CNPG `Cluster`s/namespaced RBAC), not the platform. See [`../apps/README.md`](../apps/README.md). |
 
 ### Adding a new infrastructure component
 

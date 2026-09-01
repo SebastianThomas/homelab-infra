@@ -1,0 +1,84 @@
+# One shared identity that every app repo uses to deploy ITSELF. homelab-infra
+# does not carry per-app config - an app's repo ships its own namespace,
+# Deployment, Service, HTTPRoute, (optional) CNPG Cluster, etc.
+#
+# The token (Secret `ci/app-deployer-token`) is the KUBE_TOKEN for all app
+# repos. Scope: deploy apps, not touch the platform - no nodes, no PV/StorageClass,
+# no ClusterRole(Binding)s, no CRDs, no Gateway/webhooks/helm. It CAN write to any
+# namespace incl. kube-system, which is acceptable for a single-tenant homelab.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-deployer
+  namespace: ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: app-deployer
+rules:
+  # Own the app's namespace (create + annotate for node pinning). Not delete -
+  # retiring an app is a deliberate manual step.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "persistentvolumeclaims", "serviceaccounts", "pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "grpcroutes", "tlsroutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Namespaced RBAC only - RBAC escalation prevention still applies (can't grant
+  # perms it doesn't hold), so it can't mint cluster-admin.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Apps define their own DB as a CNPG Cluster (operator + catalog stay in infra).
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "poolers", "scheduledbackups", "databases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: app-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: app-deployer
+subjects:
+  - kind: ServiceAccount
+    name: app-deployer
+    namespace: ci
+---
+# Long-lived token (K8s >= 1.24 does not auto-create one). Extract:
+#   kubectl -n ci get secret app-deployer-token -o jsonpath='{.data.token}'  | base64 -d   # -> KUBE_TOKEN
+#   kubectl -n ci get secret app-deployer-token -o jsonpath='{.data.ca\.crt}'              # -> KUBE_CA
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-deployer-token
+  namespace: ci
+  annotations:
+    kubernetes.io/service-account.name: app-deployer
+type: kubernetes.io/service-account-token

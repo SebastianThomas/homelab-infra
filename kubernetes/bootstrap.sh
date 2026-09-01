@@ -56,18 +56,9 @@ kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1 || \
 # no rollout wait here. Check: kubectl -n monitoring get helmchart,pods
 kubectl apply -k "${here}/infrastructure/monitoring"
 
-step "Application scaffolding (namespace / RBAC / database / HTTPRoute)"
-# Only the platform side of each app lives here. The Deployment + Service are
-# owned and applied by the app's own repo (see kubernetes/apps/README.md).
-# Directories starting with "_" (e.g. _template) are skipped.
-shopt -s nullglob
-for app in "${here}"/apps/*/; do
-  name="$(basename "${app}")"
-  [[ "${name}" == _* ]] && continue
-  [[ -f "${app}kustomization.yaml" ]] || continue
-  echo "  - ${name}"
-  kubectl apply -k "${app}"
-done
-shopt -u nullglob
+step "App-deployer identity (shared)"
+# One ServiceAccount + ClusterRole that every app repo uses to deploy itself.
+# homelab-infra carries NO per-app config - see kubernetes/apps/README.md.
+kubectl apply -k "${here}/infrastructure/app-deployer"
 
 step "done"

@@ -132,8 +132,8 @@ export KUBECONFIG=$PWD/../kubeconfig/kube-cp-01.yaml
 
 Run the **`deploy`** workflow (or `kubernetes/bootstrap.sh` locally). It applies,
 in order: Traefik config → cert-manager + issuers → CloudNativePG + catalog →
-Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the platform
-scaffold of each `apps/<name>/`.
+Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the shared
+`app-deployer` identity. Apps deploy themselves from their own repos.
 
 ### 5b. HTTP routing
 
@@ -208,27 +208,25 @@ ssh sebas@homelab.sthomas.ch sudo cat /etc/rancher/k3s/k3s.yaml | sed 's#127.0.0
 
 ## Adding an application
 
-Apps are **split across two repos** so you can ship a new version from the app's
-own repo with **no commit here**:
+**The app lives entirely in its own repo** — namespace, Deployment, Service,
+HTTPRoute, optional DB — and deploys itself on tag. homelab-infra carries no
+per-app config; it just provides the shared `app-deployer` identity (one
+`KUBE_TOKEN` for every app), the Gateway, cert-manager and the CNPG operator.
 
-- **This repo** owns the platform side per app — namespace, node placement,
-  a scoped `deployer` ServiceAccount, database, `HTTPRoute`. Set it up once:
-  `cp -r kubernetes/apps/_template kubernetes/apps/<name>`, adjust, push.
-- **The app's repo** owns its `Deployment` + `Service` and deploys itself on
-  release via the shared composite actions in
-  [`SebastianThomas/homelab-actions`](https://github.com/SebastianThomas/homelab-actions)
-  (`headscale-connect` + `kube-deploy`), pinning whatever version it wants (git
-  tag → image tag). Rollback = redeploy an older tag or `kubectl rollout undo`.
-
-Full walkthrough + templates: [`kubernetes/apps/README.md`](kubernetes/apps/README.md).
+Copy [`kubernetes/apps/_template`](kubernetes/apps/README.md) into your app repo
+as `deploy/`, add a `release.yml` that calls
+[`SebastianThomas/homelab-actions`](https://github.com/SebastianThomas/homelab-actions)
+(`headscale-connect` + `kube-deploy`), set the repo's `production` secrets, push a
+tag. Live example: [`SebastianThomas/genie-web`](https://github.com/SebastianThomas/genie-web).
+Full walkthrough: [`kubernetes/apps/README.md`](kubernetes/apps/README.md).
 
 ## Where things live
 
 | | |
 |---|---|
-| `kubernetes/infrastructure/` | cluster-wide services (Gateway/Traefik, TLS, DB operator, Headscale, monitoring) |
-| `kubernetes/apps/<name>/` | the platform side of an app (namespace, RBAC, database, `HTTPRoute`) |
-| the app's own repo | its `Deployment` / `Service` and released version |
+| `kubernetes/infrastructure/` | cluster-wide services (Gateway/Traefik, TLS, DB operator, Headscale, monitoring, app-deployer) |
+| `kubernetes/apps/_template/` | copy-paste source for an app repo's `deploy/` |
+| the app's own repo | **everything** for that app |
 
 Ansible never deploys anything under `kubernetes/`.
 

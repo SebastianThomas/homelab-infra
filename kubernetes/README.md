@@ -5,16 +5,16 @@ here it's plain `kubectl` / Kustomize.
 
 ```
 kubernetes/
-├── bootstrap.sh          # ordered, idempotent apply of infrastructure/ + app scaffolding
+├── bootstrap.sh          # ordered, idempotent apply of infrastructure/
 ├── infrastructure/       # cluster-wide platform services
 │   ├── traefik/          # tunes the bundled K3s Traefik; enables the Gateway API provider
 │   ├── cert-manager/     # Let's Encrypt ClusterIssuers (HTTP-01)
 │   ├── cloudnative-pg/   # Postgres operator image catalog
 │   ├── headscale/        # Headscale control server + Headplane UI
-│   └── monitoring/       # VictoriaMetrics + VictoriaLogs + Grafana
-└── apps/                 # platform side of each app (namespace/RBAC/db/HTTPRoute);
-    ├── _template/        #   the Deployment+Service live in the app's own repo
-    └── <name>/           # see apps/README.md
+│   ├── monitoring/       # VictoriaMetrics + VictoriaLogs + Grafana
+│   └── app-deployer/     # shared SA + ClusterRole every app repo deploys with
+└── apps/
+    └── _template/        # copy-paste source for an app repo's deploy/ - NOT applied here
 ```
 
 Node placement is a **namespace annotation**
@@ -35,8 +35,8 @@ kubernetes/bootstrap.sh
 
 `bootstrap.sh` applies, in order: Traefik config → cert-manager (pinned
 upstream) + issuers → CloudNativePG (pinned upstream) + image catalog →
-Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the platform
-side of every `apps/*/` (skips `apps/_*`).
+Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the shared
+app-deployer identity. It does **not** deploy apps - each app repo does that.
 
 Upstream versions are pinned: operator manifests at the top of `bootstrap.sh`
 (`CERT_MANAGER_VERSION`, `CNPG_VERSION`), Helm charts as `# renovate: chart=…`
@@ -47,8 +47,7 @@ comments in `infrastructure/monitoring/`. All bumped by Renovate.
 | Kind of thing | Goes in |
 |---|---|
 | Gateway/Traefik tuning, TLS issuers, operators, cluster-wide policy | `infrastructure/` |
-| An app's namespace / RBAC / database / `HTTPRoute` | `apps/<name>/` (this repo) |
-| An app's `Deployment` / `Service` / released version | the **app's own repo** |
+| **Anything** for a specific app (namespace, Deployment, Service, HTTPRoute, DB) | the **app's own repo** under `deploy/` |
 
-Apps are split across two repos so versions ship without a commit here — see
+homelab-infra knows nothing about individual apps — see
 [`apps/README.md`](apps/README.md).
