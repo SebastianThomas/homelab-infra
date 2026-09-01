@@ -1,0 +1,50 @@
+---
+# Public TLS for the Traefik `websecure` listener (Gateway `traefik-gateway`,
+# kube-system). cert-manager solves HTTP-01 via a temporary Ingress served by
+# Traefik's Ingress provider - so this only completes once Traefik owns the
+# host's :80, i.e. after the host nginx is stopped.
+#
+# Two certs, not one SAN cert:
+#   - gateway-tls-homelab issues BEFORE the nginx flip (the wildcard vhost
+#     already forwards /.well-known/acme-challenge/ to Traefik), so grafana /
+#     headscale / *.homelab keep a valid cert across the flip.
+#   - gateway-tls-public only completes after the flip.
+# Independent renewal, and adding a bare name later can't break the homelab one.
+#
+# Strato has no ACME DNS API -> no real wildcard; list every name and re-issue
+# when adding one. Renewal is automatic (~30d before expiry).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-tls-homelab
+  namespace: kube-system
+spec:
+  secretName: gateway-tls-homelab
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - grafana.homelab.sthomas.ch
+    - headscale.homelab.sthomas.ch
+    - genie-web.homelab.sthomas.ch
+    - kochbuch.homelab.sthomas.ch
+    - hansenberg-alumni-map.homelab.sthomas.ch
+    - hansenberg-alumni-map-dev.homelab.sthomas.ch
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-tls-public
+  namespace: kube-system
+spec:
+  secretName: gateway-tls-public
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - sthomas.ch
+    - dev.sthomas.ch
+    - genie-web.sthomas.ch
+    - kochbuch.sthomas.ch
+    - hansenberg-alumni-map.sthomas.ch
+    - hansenberg-alumni-map-dev.sthomas.ch

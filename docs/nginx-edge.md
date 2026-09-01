@@ -1,13 +1,22 @@
 # Public routing: host nginx in front of K3s
 
-The Strato VM (`kube-cp-01`) already runs **nginx + certbot** for ~13
-`*.sthomas.ch` sites that reverse-proxy to local docker-compose apps. K3s was
-added on the same box, and its bundled Traefik + ServiceLB (klipper) grabs the
-host's `:80`/`:443` via iptables DNAT — which takes the traffic away from nginx
-and breaks those sites.
+> **HISTORICAL.** Traefik is now the public edge — `service.spec.type:
+> LoadBalancer`, a `websecure` HTTPS listener, and cert-manager gateway certs
+> (`infrastructure/cert-manager/gateway-certs.yaml`). nginx + certbot on the VPS
+> are stopped. This doc is kept for the design rationale and the flip runbook
+> ([last section](#flip-to-traefik-as-edge-done)). A few `-dev` docker-compose
+> stacks (std-dive-logger, sonar-protocol, start-hack) were left un-migrated and
+> are offline until moved into the cluster.
 
-So: **nginx stays the public edge.** Traefik is demoted to an internal backend
-reachable only on its ClusterIP.
+## Background (nginx-edge mode)
+
+The Strato VM (`kube-cp-01`) ran **nginx + certbot** for ~13 `*.sthomas.ch`
+sites reverse-proxying to local docker-compose apps. K3s was added on the same
+box, and its bundled Traefik + ServiceLB (klipper) grabs the host's `:80`/`:443`
+via iptables DNAT — which took traffic away from nginx and broke those sites.
+
+So while the legacy apps were still on docker-compose: **nginx stayed the public
+edge**, Traefik demoted to an internal backend reachable only on its ClusterIP.
 
 ```
 Internet :80/:443
@@ -260,21 +269,95 @@ Existing sites: `curl -sI https://genie-web.sthomas.ch` etc. — back to normal.
    behaviour → add an exact-name block to `homelab-cluster`.
 3. DNS: covered by the `*.homelab.sthomas.ch` wildcard.
 
-## Flip to Traefik-as-edge (later, when the legacy docker apps are gone)
+## Flip to Traefik-as-edge (DONE)
 
-1. `infrastructure/traefik/helmchartconfig.yaml`:
-   - `service.spec.type: LoadBalancer` (drop the pinned `clusterIP`)
-   - `ports.web` → add `hostPort: 80`; `ports.websecure` → add `hostPort: 443`
-     (no `hostIP`)
-   - add a `websecure` HTTPS listener to `gateway.listeners` with
-     `certificateRefs` pointing at a Secret, and annotate the Gateway with
-     `cert-manager.io/cluster-issuer: letsencrypt-prod` — cert-manager then
-     fills that Secret (HTTP-01 solver still uses a temporary Ingress, which
-     Traefik's Ingress provider serves). Details in
-     [`gateway-api.md`](gateway-api.md#tls-at-the-flip).
-2. `deploy`. Confirm `https://headscale.homelab.sthomas.ch` serves a
-   cert-manager cert.
-3. `sudo systemctl disable --now nginx certbot.timer`.
+What was applied, in order. All hostnames the cluster serves at the edge are in
+the two `Certificate`s in `infrastructure/cert-manager/gateway-certs.yaml`.
 
-If you kept the `/.well-known/acme-challenge/` forward in step 1, cert-manager
-can pre-warm its certs before the flip for a zero HTTPS gap.
+### 1. As-code (merged to `main`, applied by the deploy workflow)
+
+- `infrastructure/traefik/helmchartconfig.yaml`:
+  - `service.spec.type: LoadBalancer` (clusterIP kept pinned — harmless)
+  - `gateway.listeners.websecure` — HTTPS :8443, `certificateRefs`
+    `[gateway-tls-homelab, gateway-tls-public]`
+  - `ports.web.redirectTo.port: websecure` — HTTP→HTTPS at the entrypoint
+- `infrastructure/cert-manager/gateway-certs.yaml` — the two `Certificate`s
+  (`kind: Certificate`, HTTP-01 via Traefik's Ingress provider — no Gateway
+  annotation needed).
+- Each app repo's `HTTPRoute` grew its bare `*.sthomas.ch` name alongside the
+  `*.homelab.sthomas.ch` one (`genie-web`, `kochbuch`, `hansenberg-*`).
+
+Both certs start `Ready=False` — the nginx wildcard vhost serves ACME
+challenges from a local webroot (for the old certbot cert), not Traefik.
+
+### 2. Pre-verify routing + pre-warm the homelab cert (nginx still the live edge)
+
+Check every hostname routes through Traefik:
+
+```bash
+for h in sthomas.ch dev.sthomas.ch genie-web.sthomas.ch kochbuch.sthomas.ch \
+         hansenberg-alumni-map.sthomas.ch grafana.homelab.sthomas.ch \
+         headscale.homelab.sthomas.ch; do
+  printf '%s -> ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' \
+    -H "Host: $h" http://10.43.66.94/
+done   # each -> 200/301/302, not 000/404
+```
+
+Point the wildcard vhost's ACME location at Traefik so `gateway-tls-homelab`
+issues *before* the flip (grafana / headscale / `*.homelab` then keep a valid
+cert across it). In `/etc/nginx/sites-available/homelab-cluster-wildcard`,
+change the `:80` server's
+
+```nginx
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+```
+
+to
+
+```nginx
+    location /.well-known/acme-challenge/ {
+        proxy_pass http://10.43.66.94:80;
+        proxy_set_header Host $host;
+    }
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+kubectl -n kube-system get certificate -w      # gateway-tls-homelab -> Ready=True (~1-2 min)
+```
+
+`gateway-tls-public` (the bare `*.sthomas.ch` names) still can't validate until
+the flip — those get a ~2–4 min cert warning in step 3. Pre-warm them too by
+adding the same `location` to each bare-name vhost if that matters.
+
+### 3. The flip (one maintenance window, ~2–4 min of imperfect TLS)
+
+```bash
+sudo systemctl stop nginx
+# klipper svclb-traefik now binds :80/:443. Force it if it lingers:
+sudo k3s kubectl -n kube-system delete pod -l svccontroller.k3s.cattle.io/svcname=traefik
+sudo ss -tlnp | grep -E ':(80|443)\s'          # -> the svclb process, not nginx
+# gateway-tls-public completes now that ACME challenges reach Traefik:
+sudo k3s kubectl -n kube-system get certificate -w   # gateway-tls-public -> Ready=True
+```
+
+Verify, then make it permanent:
+
+```bash
+curl -sI https://sthomas.ch                         # 200, valid LE cert
+curl -sI https://grafana.homelab.sthomas.ch
+curl -sS https://headscale.homelab.sthomas.ch/health
+sudo systemctl disable --now nginx certbot.timer
+```
+
+Rollback: `sudo systemctl start nginx` (svclb loses the ports, nginx retakes
+them), then revert `service.spec.type` to `ClusterIP` and redeploy.
+
+### 4. Leftovers
+
+- `/etc/nginx/sites-*` and the host certbot certs are now dead — remove at
+  leisure.
+- The un-migrated `-dev` compose stacks (`/root/std-dive-logger`,
+  `/root/sonar-protocol-backend`, `/root/start-hack-backend`) keep running but
+  are unreachable (no route). Migrate into the cluster, then
+  `docker compose down` + delete the dirs.

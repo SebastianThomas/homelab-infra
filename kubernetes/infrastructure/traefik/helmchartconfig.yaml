@@ -7,28 +7,26 @@
 # `traefik-crd` release and version-locked to this Traefik. We just turn the
 # provider on, and the chart creates:
 #   - GatewayClass  "traefik"          (controller traefik.io/gateway-controller)
-#   - Gateway       "traefik-gateway"  in kube-system, one HTTP listener (:8000)
+#   - Gateway       "traefik-gateway"  in kube-system, listeners web (:8000 HTTP)
+#                                       and websecure (:8443 HTTPS)
 # App routes are `HTTPRoute` objects in the app's namespace with
 #   parentRefs: [{ name: traefik-gateway, namespace: kube-system }]
-# (the listener allows routes from every namespace).
+# (the listeners allow routes from every namespace; a route with no sectionName
+# attaches to both, so HTTP+HTTPS work with no per-route TLS config).
 #
-# EDGE: nginx is the public edge. The Strato VM already runs nginx + certbot for
-# a dozen *.sthomas.ch sites (proxying to local docker-compose apps), so Traefik
-# is NOT public here:
-#
-#   service.spec.type: ClusterIP  -> K3s ServiceLB (klipper) stops DNAT'ing the
-#                                    host's :80/:443, leaving them to nginx.
-#   service.spec.clusterIP pinned -> nginx has a stable address to proxy to.
-#
-# nginx then reverse-proxies *.homelab.sthomas.ch -> http://10.43.66.94:80.
+# EDGE: Traefik is the public edge. `service.spec.type: LoadBalancer` -> K3s
+# ServiceLB (klipper) binds the host's :80/:443 to this Service. TLS terminates
+# here with cert-manager-issued certs (infrastructure/cert-manager/
+# gateway-certs.yaml -> the websecure `certificateRefs` below). HTTP redirects
+# to HTTPS at the `web` entrypoint (`ports.web.redirectTo`).
+# History (host nginx + certbot as edge, and the flip): docs/nginx-edge.md.
 #
 # NOTE: the Traefik chart (v40) renders the Service spec straight from
 # `service.spec` - a top-level `service.type` is silently ignored. And do NOT
 # set `ports.web.hostIP`: the chart threads it into the entrypoint listen
 # address, so Traefik binds the pod's own loopback and nothing can reach it.
 #
-# Full picture + the nginx vhost + the "flip to Traefik-as-edge" checklist:
-#   docs/nginx-edge.md ; Gateway API notes: docs/gateway-api.md
+# Gateway API notes: docs/gateway-api.md
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
@@ -39,9 +37,11 @@ spec:
   valuesContent: |-
     service:
       spec:
-        type: ClusterIP
-        # Pinned so nginx's proxy_pass target never moves. This is the address
-        # K3s already allocated; keeping it explicit survives a svc recreate.
+        # Traefik is the public edge (host nginx retired). type: LoadBalancer
+        # -> K3s ServiceLB (klipper) binds the host's :80/:443 to this Service.
+        type: LoadBalancer
+        # clusterIP kept pinned - harmless under LoadBalancer, and survives a
+        # svc recreate. (Was nginx's proxy_pass target before the flip.)
         clusterIP: "10.43.66.94"
 
     # Gateway API provider (Traefik's Ingress provider stays on too - cert-manager
@@ -60,12 +60,27 @@ spec:
           # Let HTTPRoutes in any namespace (headscale/, apps/*) attach.
           namespacePolicy:
             from: All
+        websecure:
+          port: 8443            # the `websecure` entrypoint
+          protocol: HTTPS
+          namespacePolicy:
+            from: All
+          # cert-manager fills these Secrets (Certificates in
+          # infrastructure/cert-manager/gateway-certs.yaml). Traefik serves
+          # whichever matches the request's SNI. Every HTTPRoute attaches to
+          # both listeners, so HTTP and HTTPS work with no per-route TLS config.
+          certificateRefs:
+            - name: gateway-tls-homelab
+            - name: gateway-tls-public
 
     ports:
       web:
-        # nginx reaches Traefik via the ClusterIP, so the connection is SNAT'd
-        # to the node's CNI address - trust that range for X-Forwarded-* /
-        # X-Real-IP (otherwise Headscale logs every client as the node IP).
+        # Public HTTP -> redirect to HTTPS at the entrypoint (before routing).
+        redirectTo:
+          port: websecure
+        # klipper's svclb SNATs client connections to the node CNI address -
+        # trust that range for X-Forwarded-* / X-Real-IP (otherwise Headscale
+        # logs every client as the node IP).
         forwardedHeaders:
           trustedIPs:
             - 10.42.0.0/16

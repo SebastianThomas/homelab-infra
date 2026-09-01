@@ -1,12 +1,12 @@
 # ACME / Let's Encrypt ClusterIssuers.
 #
-# Currently INERT: in nginx-edge mode the host certbot issues the public certs
-# (see docs/nginx-edge.md). These become live at the flip to Traefik-as-edge.
+# Live: Traefik is the public edge and these issue the gateway certs
+# (gateway-certs.yaml). The old host certbot is retired - see docs/nginx-edge.md.
 #
 # HTTP-01 solver uses a temporary *Ingress* - cert-manager has no stable Gateway
 # API solver, and Traefik keeps its Ingress provider enabled precisely so this
 # keeps working alongside our HTTPRoute-based app routes. The VPS is publicly
-# reachable on :80, so no DNS API is needed. Per-host certs (no wildcard -
+# reachable on :80, so no DNS API is needed. Per-host names (no wildcard -
 # Strato has no ACME DNS API).
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

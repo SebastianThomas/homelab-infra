@@ -7,3 +7,4 @@ kind: Kustomization
 # separately avoids the "CRD not established yet" race.
 resources:
   - cluster-issuer.yaml
+  - gateway-certs.yaml
