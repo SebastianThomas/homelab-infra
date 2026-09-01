@@ -6,49 +6,60 @@ added on the same box, and its bundled Traefik + ServiceLB (klipper) grabs the
 host's `:80`/`:443` via iptables DNAT — which takes the traffic away from nginx
 and breaks those sites.
 
-So: **nginx stays the public edge.** Traefik is demoted to an internal backend.
+So: **nginx stays the public edge.** Traefik is demoted to an internal backend
+reachable only on its ClusterIP.
 
 ```
 Internet :80/:443
   → nginx (host, certbot)
-      ├─ genie-web / kochbuch / … .sthomas.ch      → localhost:<docker port>   (unchanged)
-      └─ *.homelab.sthomas.ch                       → 127.0.0.1:8081  → Traefik → Ingress → Service → Pod
+      ├─ genie-web / kochbuch / … .sthomas.ch   → localhost:<docker port>        (unchanged)
+      └─ *.homelab.sthomas.ch                    → 10.43.66.94:80  → Traefik → Ingress → Service → Pod
 ```
 
-The repo change for this is one file: `infrastructure/traefik/helmchartconfig.yaml`
-sets `service.type: ClusterIP` (klipper stops hijacking the ports) and binds
-Traefik's HTTP entrypoint to `127.0.0.1:8081`.
+`10.43.66.94` is Traefik's **ClusterIP**, pinned in
+`infrastructure/traefik/helmchartconfig.yaml`. Reachable from the host because
+the node is in the cluster (kube-proxy programs the ClusterIP). Nothing is
+published on a host port, so there is nothing extra to firewall.
 
-## 1. Apply it
+## 1. Apply the Traefik config
+
+`infrastructure/traefik/helmchartconfig.yaml` sets `service.spec.type: ClusterIP`
+(klipper stops hijacking the ports) with the ClusterIP pinned.
+
+> The Traefik chart (v40, bundled with K3s) renders the Service spec straight
+> from `service.spec`. A top-level `service.type` is **silently ignored** — it
+> must be `service.spec.type`. Likewise never set `ports.web.hostIP`: the chart
+> feeds it into the entrypoint listen address and Traefik ends up bound to the
+> pod's loopback, unreachable by kube-proxy or nginx.
 
 ```bash
 # deploy workflow, or:
 kubectl apply -k kubernetes/infrastructure/traefik
 ```
 
-klipper should remove its `svclb-traefik` DaemonSet when it sees the service is
-no longer `LoadBalancer`. Check, and force it if it lingers:
+klipper removes its `svclb-traefik` DaemonSet once the Service is no longer
+`LoadBalancer`. Check, and force it if it lingers:
 
 ```bash
+sudo k3s kubectl -n kube-system get svc traefik          # TYPE should be ClusterIP
 sudo k3s kubectl -n kube-system get ds
 sudo k3s kubectl -n kube-system delete ds -l svccontroller.k3s.cattle.io/svcname=traefik   # if still there
 ```
 
-Confirm the port hijack is gone and Traefik is on loopback:
+Confirm the port hijack is gone and Traefik answers on its ClusterIP:
 
 ```bash
-sudo iptables -t nat -S PREROUTING | grep -E '3[0-9]{4}'   # klipper DNAT rules -> should be empty
-sudo ss -tlnp | grep -E ':(8081|80|443)\s'                 # 8081 -> 127.0.0.1 (traefik); 80/443 -> nginx
+sudo iptables -t nat -S PREROUTING | grep -E '3[0-9]{4}'          # klipper DNAT rules -> empty
+sudo ss -tlnp | grep -E ':(80|443)\s'                             # 80/443 -> nginx only
+curl -sI -H 'Host: headscale.homelab.sthomas.ch' http://10.43.66.94/   # -> 200/301/404 from Traefik, not 000
 ```
 
-- Stale klipper `PREROUTING ... --dport 443 -j DNAT` rule survives:
-  `sudo systemctl restart k3s` (its shutdown cleans klipper rules), or delete it
-  by hand.
-- `8081` shows `0.0.0.0` instead of `127.0.0.1` (chart ignored `hostIP`): it's
-  not publicly routable through the K3s FORWARD chain in practice, but to be
-  safe add `firewall_allow_rules` nothing for it and, if paranoid,
-  `sudo ufw deny 8081/tcp`. Or proxy nginx to the Traefik ClusterIP instead
-  (`kubectl -n kube-system get svc traefik` → `proxy_pass http://<clusterIP>;`).
+- Stale klipper `PREROUTING ... --dport 443 -j DNAT` rule survives a config
+  change: `sudo systemctl restart k3s` (its shutdown cleans klipper rules), or
+  delete the rule by hand.
+- `curl http://10.43.66.94` returns `000` (connection refused): the Traefik pod
+  is likely still the old one bound to loopback — `kubectl -n kube-system
+  rollout restart deploy traefik` and recheck `ss` inside the pod.
 
 ## 2. nginx vhost for cluster hostnames
 
@@ -66,10 +77,10 @@ server {
     server_name headscale.homelab.sthomas.ch;   # one server_name per cluster app, or use *.homelab.sthomas.ch
     location / { return 301 https://$host$request_uri; }
 
-    # keep this only if you want cert-manager to keep renewing its in-cluster
+    # Keep this only if you want cert-manager to keep renewing its in-cluster
     # certs (pre-warm for the eventual flip); harmless to omit.
     location /.well-known/acme-challenge/ {
-        proxy_pass http://127.0.0.1:8081;
+        proxy_pass http://10.43.66.94:80;
         proxy_set_header Host $host;
     }
 }
@@ -85,7 +96,7 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
 
     location / {
-        proxy_pass http://127.0.0.1:8081;
+        proxy_pass http://10.43.66.94:80;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -109,9 +120,17 @@ sudo nginx -t && sudo systemctl reload nginx
 
 The `proxy_*` timeout/upgrade/buffering directives matter for **headscale** (and
 websocket apps). Plain HTTP apps don't need them — for those a bare
-`location / { proxy_pass http://127.0.0.1:8081; proxy_set_header Host $host; ... }`
+`location / { proxy_pass http://10.43.66.94:80; proxy_set_header Host $host; ... }`
 is enough. Traefik does the per-host + per-path routing from there via the
 Ingress objects.
+
+If you ever need to re-check the ClusterIP:
+
+```bash
+sudo k3s kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}'
+```
+
+(it's pinned in `helmchartconfig.yaml`, so it should not move).
 
 ## 3. Certificate
 
@@ -146,8 +165,9 @@ Existing sites: `curl -sI https://genie-web.sthomas.ch` etc. — back to normal.
 
 ## Flip to Traefik-as-edge (later, when the legacy docker apps are gone)
 
-1. `infrastructure/traefik/helmchartconfig.yaml`: `service.type: LoadBalancer`;
-   `ports.web` → `hostPort: 80` (drop `hostIP`); add `ports.websecure.hostPort: 443`.
+1. `infrastructure/traefik/helmchartconfig.yaml`: `service.spec.type:
+   LoadBalancer` (drop the pinned `clusterIP`); `ports.web` → add `hostPort: 80`,
+   `ports.websecure` → add `hostPort: 443` (no `hostIP`).
 2. Ensure every cluster `Ingress` has `tls:` + `cert-manager.io/cluster-issuer:
    letsencrypt-prod` (re-add if you dropped them). cert-manager is still
    installed and issues per-host certs.

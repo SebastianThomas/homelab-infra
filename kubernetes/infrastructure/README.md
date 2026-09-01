@@ -5,7 +5,7 @@ Cluster-wide platform services. Applied by
 
 | Component | What it is | Notes |
 |---|---|---|
-| `traefik/` | `HelmChartConfig` for the Traefik **bundled with K3s** | **`ClusterIP` + bound to `127.0.0.1:8081`** — the host nginx is the public edge and reverse-proxies `*.homelab.sthomas.ch` to it (the VM already runs nginx + certbot for other sites). See [`docs/nginx-edge.md`](../../docs/nginx-edge.md), incl. the flip to Traefik-as-edge. Never `disable: traefik` in the K3s config. |
+| `traefik/` | `HelmChartConfig` for the Traefik **bundled with K3s** | **`service.spec.type: ClusterIP`, ClusterIP pinned to `10.43.66.94`** — the host nginx is the public edge and reverse-proxies `*.homelab.sthomas.ch` to that address (the VM already runs nginx + certbot for other sites). See [`docs/nginx-edge.md`](../../docs/nginx-edge.md), incl. the flip to Traefik-as-edge. Never `disable: traefik` in the K3s config. |
 | `cert-manager/` | Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod`, `letsencrypt-staging`) | Installed and running, but **certs are currently issued by the host certbot** (nginx-edge mode). The `tls:` + `cert-manager.io` annotations on Ingresses are inert until the flip. HTTP-01 via Traefik; per-host (no wildcard). |
 | `cloudnative-pg/` | `ClusterImageCatalog` (`postgresql-minimal-trixie`, PG 17 + 18) | Operator from pinned upstream manifest. PG 18 entry carries `postgis` / `pgvector` / `pgaudit` / `timescaledb-oss` as extension images. No backups configured. |
 | `headscale/` | Headscale control server + Headplane web UI | Single `headscale` namespace, pinned to the VPS. See [`headscale/README.md`](headscale/README.md). |

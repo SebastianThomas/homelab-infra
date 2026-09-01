@@ -3,12 +3,21 @@
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # MODE: nginx is the public edge. The Strato VM already runs nginx + certbot for
-# a dozen *.sthomas.ch sites (proxying to local docker-compose apps). Traefik is
-# NOT public here: `service.type: ClusterIP` stops K3s ServiceLB (klipper) from
-# grabbing the host's :80/:443, and Traefik's HTTP entrypoint is bound to
-# 127.0.0.1:8081 so nginx can reverse-proxy *.homelab.sthomas.ch to it.
+# a dozen *.sthomas.ch sites (proxying to local docker-compose apps), so Traefik
+# is NOT public here:
 #
-# Full picture, the nginx vhost, and the "flip to Traefik-as-edge" checklist:
+#   service.spec.type: ClusterIP  -> K3s ServiceLB (klipper) stops DNAT'ing the
+#                                    host's :80/:443, leaving them to nginx.
+#   service.spec.clusterIP pinned -> nginx has a stable address to proxy to.
+#
+# nginx then reverse-proxies *.homelab.sthomas.ch -> http://10.43.66.94:80.
+#
+# NOTE: the Traefik chart (v40) renders the Service spec straight from
+# `service.spec` - a top-level `service.type` is silently ignored. And do NOT
+# set `ports.web.hostIP`: the chart threads it into the entrypoint listen
+# address, so Traefik binds the pod's own loopback and nothing can reach it.
+#
+# Full picture + the nginx vhost + the "flip to Traefik-as-edge" checklist:
 #   docs/nginx-edge.md
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: helm.cattle.io/v1
@@ -18,20 +27,20 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
-    # ClusterIP -> klipper leaves host :80/:443 alone. The existing
-    # svclb-traefik DaemonSet is removed by klipper when it sees the type change
-    # (if it lingers: `kubectl -n kube-system delete ds -l svccontroller.k3s.cattle.io/svcname=traefik`).
     service:
-      type: ClusterIP
+      spec:
+        type: ClusterIP
+        # Pinned so nginx's proxy_pass target never moves. This is the address
+        # K3s already allocated; keeping it explicit survives a svc recreate.
+        clusterIP: "10.43.66.94"
     ports:
       web:
-        # HTTP entrypoint, bound to loopback only. nginx proxies here.
-        hostPort: 8081
-        hostIP: "127.0.0.1"
-        # nginx (loopback) is a trusted proxy for X-Forwarded-* / X-Real-IP.
+        # nginx reaches Traefik via the ClusterIP, so the connection is SNAT'd
+        # to the node's CNI address - trust that range for X-Forwarded-* /
+        # X-Real-IP (otherwise Headscale logs every client as the node IP).
         forwardedHeaders:
           trustedIPs:
-            - 127.0.0.1/32
+            - 10.42.0.0/16
         # Headscale's control protocol is a long-lived POST that upgrades the
         # connection - disable the responding timeouts.
         transport:
@@ -40,8 +49,6 @@ spec:
             writeTimeout: 0
             idleTimeout: 0
       websecure:
-        # Not bound to the host in this mode (nginx terminates TLS). Kept
-        # configured so flipping to edge mode is a small change.
         transport:
           respondingTimeouts:
             readTimeout: 0
