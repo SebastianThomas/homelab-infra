@@ -150,6 +150,63 @@ server {
 
 Most apps (Grafana included) are fine on the wildcard block and need no entry here.
 
+### `sthomas.ch` + `dev.sthomas.ch` — a cluster app on the *main* domain
+
+Some apps live on `*.sthomas.ch` (or the apex) rather than `*.homelab.sthomas.ch`,
+so the wildcard block can't catch them — they need an exact-name vhost. The
+`sthomas.ch` site (namespaces `sthomas-ch-prod` / `sthomas-ch-dev`, repo
+`SebastianThomas/sthomas.ch`) replaced its old `docker-compose` vhost
+(`localhost:8101` / `:8102`) with this. TLS stays on the existing
+`genie-web.sthomas.ch` certbot cert, which already lists both names — **no cert
+change needed**.
+
+Replaces `/etc/nginx/sites-available/dev.sthomas.ch` (the file holds both):
+
+```nginx
+server {
+    server_name sthomas.ch;
+    location / {
+        proxy_pass http://10.43.66.94:80;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/genie-web.sthomas.ch/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/genie-web.sthomas.ch/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+}
+server {
+    server_name dev.sthomas.ch;
+    location / {
+        proxy_pass http://10.43.66.94:80;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/genie-web.sthomas.ch/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/genie-web.sthomas.ch/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+}
+server {
+    if ($host = dev.sthomas.ch) { return 301 https://$host$request_uri; } # managed by Certbot
+    server_name dev.sthomas.ch;
+    listen 80;
+    return 404; # managed by Certbot
+}
+server {
+    if ($host = sthomas.ch) { return 301 https://$host$request_uri; } # managed by Certbot
+    server_name sthomas.ch;
+    listen 80;
+    return 404; # managed by Certbot
+}
+```
+
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
 ```
