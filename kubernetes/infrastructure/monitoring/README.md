@@ -21,31 +21,17 @@ mechanism as the bundled Traefik) via the two `HelmChart` resources here — no
 
 ## Access
 
-`https://grafana.homelab.sthomas.ch` — via the `grafana` `HTTPRoute` →
-`traefik-gateway`, then the host nginx (nginx-edge mode). Add the nginx vhost +
-cert per [`../../../docs/nginx-edge.md`](../../../docs/nginx-edge.md):
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name grafana.homelab.sthomas.ch;
-    ssl_certificate     /etc/letsencrypt/live/<base-cert>/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/<base-cert>/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    location / {
-        proxy_pass http://10.43.66.94:80;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
+`https://grafana.homelab.sthomas.ch` — the `grafana` `HTTPRoute` →
+`traefik-gateway` → host nginx's `*.homelab.sthomas.ch` wildcard vhost
+(nginx-edge mode). DNS is covered by the wildcard. The only per-app host step is
+growing the shared cert:
 
 ```bash
-sudo certbot --nginx --expand -d grafana.homelab.sthomas.ch
+sudo certbot certonly --nginx --cert-name homelab-cluster --expand \
+  -d grafana.homelab.sthomas.ch   # + every other *.homelab name already on it
 ```
 
-DNS: covered by the `*.homelab.sthomas.ch` wildcard.
+Full picture: [`../../../docs/nginx-edge.md`](../../../docs/nginx-edge.md).
 
 ## Grafana admin login
 

@@ -66,37 +66,33 @@ curl -sI -H 'Host: headscale.homelab.sthomas.ch' http://10.43.66.94/   # -> 200/
   is likely still the old one bound to loopback — `kubectl -n kube-system
   rollout restart deploy traefik` and recheck `ss` inside the pod.
 
-## 2. nginx vhost for cluster hostnames
+## 2. nginx vhosts for cluster hostnames
 
-One file, additive — your existing vhosts are untouched.
+Two additive files — your existing `*.sthomas.ch` vhosts are untouched.
 
-`/etc/nginx/sites-available/homelab-cluster` (symlink into `sites-enabled/`):
+### `homelab-cluster-wildcard` — the catch-all (set up once)
+
+`/etc/nginx/sites-available/homelab-cluster-wildcard`, symlinked into
+`sites-enabled/`. A `*.homelab.sthomas.ch` server that proxies everything to
+Traefik — **a new cluster app needs no nginx change**, only a cert `--expand`
+(step 3). Exact-name vhosts (below) still win over it.
 
 ```nginx
-# top of the file, or in /etc/nginx/conf.d/upgrade-map.conf if not already present
-map $http_upgrade $connection_upgrade { default upgrade; '' close; }
-
 server {
     listen 80;
     listen [::]:80;
-    server_name headscale.homelab.sthomas.ch;   # one server_name per cluster app, or use *.homelab.sthomas.ch
+    server_name *.homelab.sthomas.ch;
+    location /.well-known/acme-challenge/ { root /var/www/html; }
     location / { return 301 https://$host$request_uri; }
-
-    # Keep this only if you want cert-manager to keep renewing its in-cluster
-    # certs (pre-warm for the eventual flip); harmless to omit.
-    location /.well-known/acme-challenge/ {
-        proxy_pass http://10.43.66.94:80;
-        proxy_set_header Host $host;
-    }
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name headscale.homelab.sthomas.ch;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name *.homelab.sthomas.ch;
 
-    ssl_certificate     /etc/letsencrypt/live/genie-web.sthomas.ch/fullchain.pem;  # updated by `certbot --expand` in step 3
-    ssl_certificate_key /etc/letsencrypt/live/genie-web.sthomas.ch/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/homelab-cluster/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/homelab-cluster/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
 
     location / {
@@ -105,10 +101,45 @@ server {
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
-
-        # Headscale control protocol: long-lived upgraded POST
         proxy_http_version 1.1;
         proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout  120s;
+        proxy_send_timeout  120s;
+    }
+}
+```
+
+> `listen 443 ssl;` (not `... ssl http2;`) matches the legacy vhosts and avoids
+> nginx's "protocol options redefined" warning. nginx 1.24 has no `http2 on;`.
+
+### `homelab-cluster` — exact-name overrides
+
+Only for hosts that need special proxy behaviour. **Headscale** does — its
+control protocol is a long-lived upgraded POST:
+
+```nginx
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+
+server {
+    listen 80; listen [::]:80;
+    server_name headscale.homelab.sthomas.ch;
+    location / { return 301 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl; listen [::]:443 ssl;
+    server_name headscale.homelab.sthomas.ch;
+    ssl_certificate     /etc/letsencrypt/live/headscale.homelab.sthomas.ch/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/headscale.homelab.sthomas.ch/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    location / {
+        proxy_pass http://10.43.66.94:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
         proxy_read_timeout  3600s;
@@ -117,19 +148,11 @@ server {
 }
 ```
 
+Most apps (Grafana included) are fine on the wildcard block and need no entry here.
+
 ```bash
-sudo ln -s /etc/nginx/sites-available/homelab-cluster /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
-
-> `listen 443 ssl http2;` is the inline form for nginx < 1.25.1 (the VM runs
-> 1.24). On newer nginx use `listen 443 ssl;` + a separate `http2 on;`.
-
-The `proxy_*` timeout/upgrade/buffering directives matter for **headscale** (and
-websocket apps). Plain HTTP apps don't need them — for those a bare
-`location / { proxy_pass http://10.43.66.94:80; proxy_set_header Host $host; ... }`
-is enough. Traefik does the per-host + per-path routing from there via the
-`HTTPRoute` objects.
 
 If you ever need to re-check the ClusterIP:
 
@@ -141,17 +164,25 @@ sudo k3s kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}'
 
 ## 3. Certificate
 
-Fits your existing certbot flow — add the hostname to the live cert:
+The wildcard block serves a cert named **`homelab-cluster`** — a SAN cert you
+grow one hostname at a time (`server_name *.homelab…` can't present a name the
+cert doesn't carry, and Strato has no ACME DNS API for a real wildcard cert):
 
 ```bash
-sudo certbot --nginx --expand -d headscale.homelab.sthomas.ch -d grafana.homelab.sthomas.ch
+# first app:
+sudo certbot certonly --nginx --cert-name homelab-cluster -d grafana.homelab.sthomas.ch
+# each later app - list ALL names again, with --expand:
+sudo certbot certonly --nginx --cert-name homelab-cluster --expand \
+  -d grafana.homelab.sthomas.ch -d <newapp>.homelab.sthomas.ch
 ```
 
-(one `-d` per cluster host — `headscale`, `grafana`, then one per app; or
-`--expand` again later). Auto-renews
-with the timer you already have. A wildcard `*.homelab.sthomas.ch` is nicer but
-needs DNS-01 → delegating `homelab.sthomas.ch` to a provider with an API
-(deSEC/Cloudflare, free) — optional.
+`certonly` = get/renew the cert, don't let certbot rewrite the hand-managed
+vhost. Auto-renews via the existing systemd timer (`authenticator = nginx`).
+Headscale keeps its own single-name cert (`headscale.homelab.sthomas.ch`).
+
+A true wildcard cert would end the per-app step — it needs DNS-01, i.e.
+delegating `homelab.sthomas.ch` to a provider with an ACME API (deSEC /
+Cloudflare, free). Optional, later.
 
 ## 4. Verify
 
@@ -166,9 +197,11 @@ Existing sites: `curl -sI https://genie-web.sthomas.ch` etc. — back to normal.
 
 1. `kubernetes/apps/<name>/` as usual — its `HTTPRoute` attaches to
    `traefik-gateway` (nothing about it is edge-specific).
-2. Add `<name>.homelab.sthomas.ch` to the nginx `homelab-cluster` vhost (or rely
-   on a `*.homelab.sthomas.ch` block) and `certbot --expand -d <name>...`.
-3. DNS: `<name>.homelab.sthomas.ch` → the VM (covered by a wildcard if you have one).
+2. Grow the cert — `certbot certonly --nginx --cert-name homelab-cluster --expand
+   -d <every existing name> -d <name>.homelab.sthomas.ch`. **No nginx edit** (the
+   wildcard vhost already covers it), unless the app needs special proxy
+   behaviour → add an exact-name block to `homelab-cluster`.
+3. DNS: covered by the `*.homelab.sthomas.ch` wildcard.
 
 ## Flip to Traefik-as-edge (later, when the legacy docker apps are gone)
 
