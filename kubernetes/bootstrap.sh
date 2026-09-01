@@ -44,8 +44,9 @@ kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=1
 kubectl apply -k "${here}/infrastructure/cloudnative-pg"
 
 step "Monitoring (VictoriaMetrics + VictoriaLogs + Grafana)"
-# Ensure the Grafana admin login exists before the chart's Grafana pod starts.
-# The deploy workflow may have already set it from GRAFANA_ADMIN_PASSWORD.
+# Ensure the Grafana admin login exists before the chart's Grafana pod first
+# starts (Grafana bakes it into its DB on that first start). If it already
+# exists we leave it alone - the deploy workflow owns password *changes*.
 kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring
 kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1 || \
   kubectl -n monitoring create secret generic grafana-admin \

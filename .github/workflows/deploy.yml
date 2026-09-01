@@ -59,23 +59,48 @@ jobs:
             echo "::warning::HEADPLANE_COOKIE_SECRET / HEADPLANE_API_KEY not set - Headplane stays NotReady. See kubernetes/infrastructure/headscale/README.md"
           fi
 
-      - name: Ensure the Grafana admin secret
+      - name: Sync the Grafana admin secret
+        id: grafana_secret
         env:
           GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           GRAFANA_PASS: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-          if [ -n "${GRAFANA_PASS}" ]; then
-            kubectl -n monitoring create secret generic grafana-admin \
-              --from-literal=admin-user="${GRAFANA_USER:-admin}" \
-              --from-literal=admin-password="${GRAFANA_PASS}" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          else
-            echo "::notice::GRAFANA_ADMIN_PASSWORD not set - bootstrap.sh will generate a random one. Read it back per kubernetes/infrastructure/monitoring/README.md"
+          [ -n "${GRAFANA_PASS}" ] || { echo "::notice::GRAFANA_ADMIN_PASSWORD not set - bootstrap.sh generates a random one (read it back per monitoring/README.md)"; exit 0; }
+          desired=$(kubectl -n monitoring create secret generic grafana-admin \
+            --from-literal=admin-user="${GRAFANA_USER:-admin}" \
+            --from-literal=admin-password="${GRAFANA_PASS}" \
+            --dry-run=client -o jsonpath='{.data}')
+          current=$(kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data}' 2>/dev/null || true)
+          if [ "${desired}" = "${current}" ]; then
+            echo "grafana-admin unchanged - nothing to do."
+            exit 0
           fi
+          kubectl -n monitoring create secret generic grafana-admin \
+            --from-literal=admin-user="${GRAFANA_USER:-admin}" \
+            --from-literal=admin-password="${GRAFANA_PASS}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Apply infrastructure + apps
         run: kubernetes/bootstrap.sh
 
       - name: Roll Headplane to pick up the secret
         run: kubectl -n headscale rollout restart deploy/headplane || true
+
+      - name: Apply the new Grafana admin password
+        # Only when the Secret actually changed. Grafana keeps its persistent DB
+        # (dashboards, folders, tokens) - this is an in-place password reset on
+        # the running pod, no restart, nothing else touched. A brand-new DB
+        # (first ever run) already has the password from the Secret.
+        if: steps.grafana_secret.outputs.changed == 'true'
+        env:
+          GRAFANA_PASS: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          if kubectl -n monitoring rollout status deploy -l app.kubernetes.io/name=grafana --timeout=120s 2>/dev/null; then
+            pod=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].metadata.name}')
+            kubectl -n monitoring exec "$pod" -c grafana -- \
+              grafana cli --homepath /usr/share/grafana admin reset-admin-password "${GRAFANA_PASS}"
+          else
+            echo "::notice::Grafana not up yet (first run) - it takes the password from the Secret on start."
+          fi

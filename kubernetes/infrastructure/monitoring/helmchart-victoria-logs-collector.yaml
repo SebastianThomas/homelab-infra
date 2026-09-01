@@ -15,6 +15,7 @@ spec:
   # renovate: chart=victoria-logs-collector
   version: "0.3.7"
   targetNamespace: monitoring
+  failurePolicy: abort   # never uninstall+reinstall on a failed upgrade
   valuesContent: |-
     remoteWrite:
       - url: http://vlsingle-victoria-metrics-k8s-stack.monitoring.svc.cluster.local:9428

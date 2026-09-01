@@ -35,25 +35,33 @@ Full picture: [`../../../docs/nginx-edge.md`](../../../docs/nginx-edge.md).
 
 ## Grafana admin login
 
-The `grafana-admin` Secret (`admin-user` / `admin-password`).
+Grafana keeps a **persistent DB** (`persistence: true`, a `local-path` PVC) so
+anything created in the UI — dashboards, folders, service-account tokens,
+annotations — survives restarts. Grafana bakes the admin login into that DB on
+its **first** start and never re-reads it, so:
 
-- **CI:** set `GRAFANA_ADMIN_PASSWORD` (and optionally `GRAFANA_ADMIN_USER`) in
-  the `production` GitHub Environment. `deploy` creates the Secret before the
-  chart runs.
-- **Otherwise:** `bootstrap.sh` generates a random password once. Read it back:
+- **First ever start:** the admin login comes from the `grafana-admin` Secret
+  (`admin-user` / `admin-password`).
+- **Password change afterwards:** set `GRAFANA_ADMIN_PASSWORD` in the
+  `production` GitHub Environment and run `deploy`. The workflow compares the
+  Secret to the desired value and, **only if it changed**, updates the Secret
+  and runs `grafana cli admin reset-admin-password` in the running pod — an
+  in-place reset, no restart, nothing else touched. No change → the workflow
+  does nothing to Grafana.
+- **Local / no GH secret:** `bootstrap.sh` generates a random password once.
+  Read it back:
 
   ```bash
   kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
   ```
 
-To set a specific password later: recreate the Secret and roll Grafana.
+  To change it locally: recreate the Secret, then
+  `kubectl -n monitoring exec deploy/victoria-metrics-k8s-stack-grafana -c grafana --
+   grafana cli --homepath /usr/share/grafana admin reset-admin-password '<new>'`.
 
-```bash
-kubectl -n monitoring create secret generic grafana-admin \
-  --from-literal=admin-user=admin --from-literal=admin-password='...' \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n monitoring rollout restart deploy/victoria-metrics-k8s-stack-grafana
-```
+> Grafana locks an account for ~5 min after 5 failed logins
+> (`too many consecutive incorrect login attempts`) — the lock lives in the DB,
+> so wait it out (a restart won't clear it).
 
 ## This is a small, shared node
 

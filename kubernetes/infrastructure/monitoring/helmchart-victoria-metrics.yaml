@@ -26,6 +26,11 @@ spec:
   # renovate: chart=victoria-metrics-k8s-stack
   version: "0.91.2"
   targetNamespace: monitoring
+  # NEVER uninstall+reinstall on a failed upgrade (the K3s default `reinstall`
+  # tears down the operator + all CRs = data loss). `abort` leaves the last good
+  # release in place and just retries the upgrade.
+  failurePolicy: abort
+  timeout: 15m
   valuesContent: |-
     # No fullnameOverride: resources are `victoria-metrics-k8s-stack-*` and the
     # operator CRs' services are `vmsingle-victoria-metrics-k8s-stack` etc.
@@ -117,16 +122,20 @@ spec:
       # RWO local-path PVC - the old pod must release it before the new one starts.
       deploymentStrategy:
         type: Recreate
+      persistence:
+        enabled: true
+        size: 2Gi
       plugins:
         - victoriametrics-metrics-datasource
         - victoriametrics-logs-datasource
       admin:
+        # Sets the admin login on the FIRST start of a given DB. Grafana does
+        # not re-apply it to an existing DB, so a password *change* is handled
+        # by the deploy workflow: it detects the changed `grafana-admin` Secret
+        # and runs `grafana cli admin reset-admin-password`. No change = no-op.
         existingSecret: grafana-admin
         userKey: admin-user
         passwordKey: admin-password
-      persistence:
-        enabled: true
-        size: 2Gi
       grafana.ini:
         server:
           root_url: https://grafana.homelab.sthomas.ch
