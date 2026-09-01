@@ -82,8 +82,8 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `K3S_TOKEN` | `openssl rand -hex 32` — the cluster join secret |
 | `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (set after first deploy) |
 | `HEADPLANE_API_KEY` | `headscale apikeys create` output (set after first deploy) |
-| `TS_PREAUTH_KEY` | Headscale pre-auth key for the nodes — **Phase 2 only** |
-| `TS_AUTHKEY` | Headscale pre-auth key for the CI runner — **Phase 2 only** |
+| `TS_PREAUTH_KEY` | Headscale pre-auth key for the K3s nodes (`--reusable --expiration 100y`) — for private API access / the Pi |
+| `TS_AUTHKEY` | Headscale pre-auth key for CI runners (`--reusable --ephemeral --expiration 100y`) — runners join the tailnet when set |
 
 > GitHub masks secret values in workflow logs, so `SSH_HOST` / `KUBE_API` etc.
 > show up as `***` in run output — expected.
@@ -199,24 +199,43 @@ Ansible never deploys anything under `kubernetes/`.
 
 ---
 
+## Private API access over Tailscale
+
+Put the VPS on the Headscale tailnet so `kubectl` (yours and CI's) reaches the
+API by its stable MagicDNS name instead of the public IP — and you can then
+firewall off public `:6443`.
+
+1. **Pre-auth key** for the VPS
+   ([how](kubernetes/infrastructure/headscale/README.md#creating-a-pre-auth-key)):
+   `--reusable --expiration 100y`. Put it in the Ansible vault as
+   `vault_tailscale_preauth_key` and in the `TS_PREAUTH_KEY` GitHub secret.
+2. Set `k3s_enable_vpn: true` in `ansible/group_vars/all/main.yml`, run
+   **`provision`** (`limit: k3s_cp`). K3s installs Tailscale, joins the tailnet
+   via `--vpn-auth`, and adds `kube-cp-01.ts.homelab.sthomas.ch` to the API cert.
+3. **CI key**: a second pre-auth key, `--reusable --ephemeral --expiration 100y`
+   → `TS_AUTHKEY` GitHub secret. Now every `deploy`/`provision` runner joins the
+   tailnet automatically (via `.github/actions/setup-ssh`).
+4. Flip the endpoint secrets to the MagicDNS name:
+   - `SSH_HOST` → `kube-cp-01.ts.homelab.sthomas.ch`
+   - `KUBE_API` → `https://kube-cp-01.ts.homelab.sthomas.ch:6443`
+   Your laptop: `tailscale switch` to the homelab profile, then re-fetch the
+   kubeconfig with that host (see [Using the cluster](#using-the-cluster)).
+5. **Close public `:6443`** — in `ansible/roles/firewall/defaults/main.yml`
+   swap the `6443` rule for the tailnet-scoped one shown in its comments, run
+   `provision`. Leave `:22` public (only `provision`'s inventory `ansible_host`
+   still uses it; the deploy runner is on the tailnet).
+
 ## Adding kube-worker-01
 
-The Pi joins the K3s pod network over the Headscale tailnet (K3s's built-in
-`--vpn-auth` Tailscale integration). Do this only after Headscale is up.
+The Pi joins the K3s pod network over the same tailnet. Do this after "Private
+API access" above (the VPS is already on the tailnet then).
 
-1. Create a reusable Headscale pre-auth key
-   ([how](kubernetes/infrastructure/headscale/README.md#creating-a-pre-auth-key));
-   put it in the `TS_PREAUTH_KEY` secret (and `TS_AUTHKEY` for the CI runner —
-   the same key works for both).
-2. Install Tailscale on the VPS side by setting `k3s_enable_vpn: true` in
-   `group_vars/all/main.yml` and running `provision` with `limit: k3s_cp`. Read
-   the server's tailnet IP (`kubectl get node kube-cp-01 -o wide`, or
-   `headscale nodes list`) into `k3s_cp_tailscale_ip`.
-3. Uncomment `kube-worker-01` in `ansible/inventory/hosts.yml`, set its
+1. Read the VPS tailnet IP (`ssh … tailscale ip -4`, or `headscale nodes list`)
+   into `k3s_cp_tailscale_ip` in `group_vars/all/main.yml`; run `provision`
+   `limit: k3s_cp` (adds it to the cert + `node-external-ip`).
+2. Uncomment `kube-worker-01` in `ansible/inventory/hosts.yml`, set its
    `ansible_host` to its tailnet name, run `provision`.
-4. In Headplane, approve the Pi node and its `10.42.x.0/24` pod route.
-5. Optionally tighten ufw (`22`, `6443` → `100.64.0.0/10` only) and switch CI to
-   the tailnet by keeping `TS_AUTHKEY` set.
+3. In Headplane, approve the Pi node and its `10.42.x.0/24` pod route.
 
 ---
 

@@ -1,7 +1,8 @@
 name: Configure SSH
 description: >
   Write the deploy key and known_hosts. If a Tailscale auth key is supplied,
-  also join the Headscale tailnet (Phase 2) so nodes are reachable privately.
+  also join the Headscale tailnet so the runner can reach the nodes privately
+  by their MagicDNS name (kube-cp-01.ts.<domain>).
 
 inputs:
   ssh-private-key:
@@ -12,7 +13,11 @@ inputs:
     required: false
     default: ""
   tailscale-authkey:
-    description: Headscale pre-auth key. Empty = skip the tailnet (public SSH).
+    description: >
+      Headscale pre-auth key for the runner - create it reusable + ephemeral
+      with a long expiry:
+        headscale preauthkeys create --user <id> --reusable --ephemeral --expiration 100y
+      Empty = skip the tailnet (public SSH / public API).
     required: false
     default: ""
   headscale-url:
@@ -36,4 +41,6 @@ runs:
       uses: tailscale/github-action@v4
       with:
         authkey: ${{ inputs.tailscale-authkey }}
-        args: --login-server=${{ inputs.headscale-url }} --accept-dns=false
+        hostname: gha-homelab
+        # --accept-dns so the runner resolves *.ts.<domain> via MagicDNS.
+        args: --login-server=${{ inputs.headscale-url }} --accept-dns

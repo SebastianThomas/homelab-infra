@@ -22,9 +22,12 @@ tls-san:
 {% for san in extra_tls_san | default([]) %}
   - "{{ san }}"
 {% endfor %}
-{% if k3s_enable_vpn | bool and k3s_cp_tailscale_ip %}
-  - "{{ k3s_cp_tailscale_ip }}"
+{% if k3s_enable_vpn | bool %}
+  # MagicDNS name - stable, lets clients/CI reach the API over the tailnet.
   - "{{ inventory_hostname }}.ts.{{ cluster_domain }}"
+{% if k3s_cp_tailscale_ip %}
+  - "{{ k3s_cp_tailscale_ip }}"
+{% endif %}
 {% endif %}
 
 kubelet-arg:

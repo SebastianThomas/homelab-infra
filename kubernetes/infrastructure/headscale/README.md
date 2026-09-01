@@ -61,15 +61,23 @@ hs routes list
 
 ## Creating a pre-auth key
 
-`headscale preauthkeys create` takes the user **ID** (a number), not the name.
+`headscale preauthkeys create` takes the user **ID** (a number), not the name
+(`hs users list` to find it).
 
-```bash
-hs users list
-```
+**Expiry:** `--expiration` (default `1h`; accepts `30m`, `24h`, `30d`, `100y`).
+There is no "never" via the CLI. But a *registered node* does not expire —
+`node.expiry: 0` in our config — so a node stays connected even after its key
+expires. The key only needs to be valid at registration time.
 
-```bash
-hs preauthkeys create --user <ID> --reusable --expiration 24h
-```
+| Use | Command |
+|---|---|
+| **A device you register once** (your laptop, the VPS on the tailnet) | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
+| **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 100y` |
+| **The K3s worker** (`TS_PREAUTH_KEY`, Phase 2) — K3s re-reads it on every start | `hs preauthkeys create --user <ID> --reusable --expiration 100y` |
+
+`--ephemeral` = the node is removed from headscale as soon as it disconnects
+(the CI action runs `tailscale logout` on exit), so runner nodes never pile up.
+`--expiration 100y` is the community answer for "effectively permanent".
 
 One-liner (needs `jq` locally):
 
