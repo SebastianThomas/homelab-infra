@@ -132,6 +132,14 @@ Run the **`deploy`** workflow (or `kubernetes/bootstrap.sh` locally). It applies
 in order: Traefik config → cert-manager + issuers → CloudNativePG + catalog →
 Headscale/Headplane → the platform scaffold of each `apps/<name>/`.
 
+### 5b. Public HTTP routing
+
+The Strato VM already runs nginx + certbot for other sites, so **nginx is the
+public edge** and reverse-proxies `*.homelab.sthomas.ch` to Traefik (which is
+`ClusterIP` on `127.0.0.1:8081`, not holding the host's ports). Add the nginx
+vhost + cert per [`docs/nginx-edge.md`](docs/nginx-edge.md). That doc also has
+the one-step flip to Traefik-as-edge once the legacy sites are migrated.
+
 ### 6. Finish Headscale
 
 Headplane needs an API key that only exists once headscale runs — do the

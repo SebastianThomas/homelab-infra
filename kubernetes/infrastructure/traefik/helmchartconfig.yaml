@@ -1,6 +1,16 @@
-# Tunes the Traefik that K3s bundles (do not `disable: traefik` in the K3s
-# config - this layers on top of it). K3s's helm-controller merges this with
-# the packaged chart values and redeploys Traefik.
+# Tunes the Traefik that K3s bundles (do not `disable: traefik` - this layers
+# on top). K3s's helm-controller merges this with the packaged values.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# MODE: nginx is the public edge. The Strato VM already runs nginx + certbot for
+# a dozen *.sthomas.ch sites (proxying to local docker-compose apps). Traefik is
+# NOT public here: `service.type: ClusterIP` stops K3s ServiceLB (klipper) from
+# grabbing the host's :80/:443, and Traefik's HTTP entrypoint is bound to
+# 127.0.0.1:8081 so nginx can reverse-proxy *.homelab.sthomas.ch to it.
+#
+# Full picture, the nginx vhost, and the "flip to Traefik-as-edge" checklist:
+#   docs/nginx-edge.md
+# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -8,19 +18,32 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
-    # The Tailscale control protocol is a long-lived POST that upgrades the
-    # connection. Traefik's default 60s readTimeout would cut it - disable the
-    # responding timeouts on the HTTPS entrypoint.
+    # ClusterIP -> klipper leaves host :80/:443 alone. The existing
+    # svclb-traefik DaemonSet is removed by klipper when it sees the type change
+    # (if it lingers: `kubectl -n kube-system delete ds -l svccontroller.k3s.cattle.io/svcname=traefik`).
+    service:
+      type: ClusterIP
     ports:
-      websecure:
+      web:
+        # HTTP entrypoint, bound to loopback only. nginx proxies here.
+        hostPort: 8081
+        hostIP: "127.0.0.1"
+        # nginx (loopback) is a trusted proxy for X-Forwarded-* / X-Real-IP.
+        forwardedHeaders:
+          trustedIPs:
+            - 127.0.0.1/32
+        # Headscale's control protocol is a long-lived POST that upgrades the
+        # connection - disable the responding timeouts.
         transport:
           respondingTimeouts:
             readTimeout: 0
             writeTimeout: 0
             idleTimeout: 0
-    # Preserve the client source IP (best effort with K3s ServiceLB) so
-    # headscale logs real addresses. headscale trusts the pod CIDR via
-    # `trusted_proxies`.
-    service:
-      spec:
-        externalTrafficPolicy: Local
+      websecure:
+        # Not bound to the host in this mode (nginx terminates TLS). Kept
+        # configured so flipping to edge mode is a small change.
+        transport:
+          respondingTimeouts:
+            readTimeout: 0
+            writeTimeout: 0
+            idleTimeout: 0
