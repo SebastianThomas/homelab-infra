@@ -24,12 +24,17 @@ jobs:
 
       - uses: azure/setup-kubectl@v5
 
+      # The runner joins the tailnet (TS_AUTHKEY) and reaches the cluster over it.
+      # SSH_HOST / KUBE_API must be the tailnet MagicDNS forms:
+      #   SSH_HOST = kube-cp-01.ts.homelab.sthomas.ch
+      #   KUBE_API = https://kube-cp-01.ts.homelab.sthomas.ch:6443
       - uses: ./.github/actions/setup-ssh
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           tailscale-authkey: ${{ secrets.TS_AUTHKEY }}
           headscale-url: ${{ secrets.HEADSCALE_URL }}
+          tailnet-ping: kube-cp-01
 
       - uses: ./.github/actions/kubeconfig
         with:

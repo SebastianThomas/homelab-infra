@@ -24,6 +24,12 @@ inputs:
     description: Headscale control server URL (used only with tailscale-authkey).
     required: false
     default: ""
+  tailnet-ping:
+    description: >
+      MagicDNS name to `tailscale ping` right after joining, as a connectivity
+      gate (e.g. "kube-cp-01"). Empty = skip.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -44,3 +50,4 @@ runs:
         hostname: gha-homelab
         # --accept-dns so the runner resolves *.ts.<domain> via MagicDNS.
         args: --login-server=${{ inputs.headscale-url }} --accept-dns
+        ping: ${{ inputs.tailnet-ping }}

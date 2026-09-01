@@ -10,6 +10,9 @@ description: >
         kube-api: ${{ secrets.KUBE_API }}
         kube-ca: ${{ secrets.KUBE_CA }}
         kube-token: ${{ secrets.KUBE_TOKEN }}
+        # only when the cluster's public :6443 is closed:
+        # tailscale-authkey: ${{ secrets.TS_AUTHKEY }}
+        # headscale-url: ${{ secrets.HEADSCALE_URL }}
 
   The namespace, RBAC (the `deployer` SA whose token this uses), database and
   ingress are provisioned once by homelab-infra (kubernetes/apps/<app>/).
@@ -28,6 +31,10 @@ inputs:
     required: false
     default: deploy
   kube-api:
+    description: >
+      API URL. If the cluster's public :6443 is open, use
+      https://homelab.sthomas.ch:6443. If it is firewalled to the tailnet, use
+      https://kube-cp-01.ts.homelab.sthomas.ch:6443 and set tailscale-authkey.
     required: true
   kube-ca:
     description: Base64 CA cert (the `ca.crt` value from the deployer-token Secret).
@@ -35,6 +42,16 @@ inputs:
   kube-token:
     description: The deployer ServiceAccount token.
     required: true
+  tailscale-authkey:
+    description: >
+      Optional Headscale pre-auth key (reusable + ephemeral). Set it (plus a
+      tailnet kube-api) to reach a cluster whose public API port is closed.
+    required: false
+    default: ""
+  headscale-url:
+    description: Headscale control server URL (used only with tailscale-authkey).
+    required: false
+    default: ""
   rollout-timeout:
     required: false
     default: 180s
@@ -42,6 +59,14 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Join the Headscale tailnet
+      if: inputs.tailscale-authkey != ''
+      uses: tailscale/github-action@v4
+      with:
+        authkey: ${{ inputs.tailscale-authkey }}
+        hostname: gha-${{ inputs.app }}
+        args: --login-server=${{ inputs.headscale-url }} --accept-dns
+
     - uses: azure/setup-kubectl@v5
 
     - name: Write kubeconfig

@@ -34,7 +34,10 @@ secrets on the **app** repo):
 export KUBECONFIG=$PWD/kubeconfig/kube-cp-01.yaml
 kubectl -n <name> get secret deployer-token -o jsonpath='{.data.token}'  | base64 -d   # -> KUBE_TOKEN
 kubectl -n <name> get secret deployer-token -o jsonpath='{.data.ca\.crt}'              # -> KUBE_CA
-# KUBE_API = https://homelab.sthomas.ch:6443
+# KUBE_API = https://homelab.sthomas.ch:6443   (public :6443 open)
+#   or, once :6443 is firewalled to the tailnet:
+#     KUBE_API = https://kube-cp-01.ts.homelab.sthomas.ch:6443
+#   + pass tailscale-authkey / headscale-url to deploy-to-k8s (see below)
 ```
 
 The `deployer` SA is scoped to that one namespace.
