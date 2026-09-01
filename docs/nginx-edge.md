@@ -287,12 +287,13 @@ the two `Certificate`s in `infrastructure/cert-manager/gateway-certs.yaml`.
 - Each app repo's `HTTPRoute` grew its bare `*.sthomas.ch` name alongside the
   `*.homelab.sthomas.ch` one (`genie-web`, `kochbuch`, `hansenberg-*`).
 
-Both certs start `Ready=False` — the nginx wildcard vhost serves ACME
-challenges from a local webroot (for the old certbot cert), not Traefik.
+Both certs stay `Ready=False` until nginx is stopped — while nginx owns `:80`
+it serves ACME challenges from a local webroot, not Traefik. That's fine: this
+is a clean cut, not a zero-downtime flip. **No nginx config is ever edited.**
 
-### 2. Pre-verify routing + pre-warm the homelab cert (nginx still the live edge)
+### 2. Pre-verify routing (nginx still the live edge)
 
-Check every hostname routes through Traefik:
+Every hostname must already route through Traefik before the cut:
 
 ```bash
 for h in sthomas.ch dev.sthomas.ch genie-web.sthomas.ch kochbuch.sthomas.ch \
@@ -303,42 +304,24 @@ for h in sthomas.ch dev.sthomas.ch genie-web.sthomas.ch kochbuch.sthomas.ch \
 done   # each -> 200/301/302, not 000/404
 ```
 
-Point the wildcard vhost's ACME location at Traefik so `gateway-tls-homelab`
-issues *before* the flip (grafana / headscale / `*.homelab` then keep a valid
-cert across it). In `/etc/nginx/sites-available/homelab-cluster-wildcard`,
-change the `:80` server's
+`000`/`404` for a name means its HTTPRoute isn't deployed yet — fix that first
+(the app's deploy workflow), or that name is dark after the cut.
 
-```nginx
-    location /.well-known/acme-challenge/ { root /var/www/html; }
-```
-
-to
-
-```nginx
-    location /.well-known/acme-challenge/ {
-        proxy_pass http://10.43.66.94:80;
-        proxy_set_header Host $host;
-    }
-```
-
-```bash
-sudo nginx -t && sudo systemctl reload nginx
-kubectl -n kube-system get certificate -w      # gateway-tls-homelab -> Ready=True (~1-2 min)
-```
-
-`gateway-tls-public` (the bare `*.sthomas.ch` names) still can't validate until
-the flip — those get a ~2–4 min cert warning in step 3. Pre-warm them too by
-adding the same `location` to each bare-name vhost if that matters.
-
-### 3. The flip (one maintenance window, ~2–4 min of imperfect TLS)
+### 3. The cut (one command; ~2–5 min of self-signed TLS while certs issue)
 
 ```bash
 sudo systemctl stop nginx
 # klipper svclb-traefik now binds :80/:443. Force it if it lingers:
 sudo k3s kubectl -n kube-system delete pod -l svccontroller.k3s.cattle.io/svcname=traefik
 sudo ss -tlnp | grep -E ':(80|443)\s'          # -> the svclb process, not nginx
-# gateway-tls-public completes now that ACME challenges reach Traefik:
-sudo k3s kubectl -n kube-system get certificate -w   # gateway-tls-public -> Ready=True
+```
+
+nginx is now bypassed entirely. Both certs validate now that ACME challenges
+reach Traefik — watch them go green (HTTP works immediately; HTTPS serves
+Traefik's default self-signed cert until this completes):
+
+```bash
+sudo k3s kubectl -n kube-system get certificate -w   # both -> Ready=True, ~2-5 min
 ```
 
 Verify, then make it permanent:
@@ -349,6 +332,12 @@ curl -sI https://grafana.homelab.sthomas.ch
 curl -sS https://headscale.homelab.sthomas.ch/health
 sudo systemctl disable --now nginx certbot.timer
 ```
+
+If a cert is still `Ready=False` after ~10 min: `kubectl -n kube-system
+describe certificaterequest` / `challenge` — usual cause is the entrypoint
+HTTP→HTTPS redirect interfering with the solver; comment out
+`ports.web.redirectTo` in `helmchartconfig.yaml`, redeploy, wait for issue,
+restore.
 
 Rollback: `sudo systemctl start nginx` (svclb loses the ports, nginx retakes
 them), then revert `service.spec.type` to `ClusterIP` and redeploy.
