@@ -36,7 +36,9 @@ GitHub Environment** secrets:
 
 `KUBE_CA` / `KUBE_TOKEN` are the **same value for every app** — extract once.
 
-Cert: `sudo certbot certonly --nginx --cert-name homelab-cluster --expand -d <all existing> -d <name>.homelab.sthomas.ch` on the host ([`docs/nginx-edge.md`](../../docs/nginx-edge.md)). DNS is covered by the wildcard.
+TLS: nothing to do — the shared `websecure` listener carries a wildcard cert
+(`*.sthomas.ch` / `*.homelab.sthomas.ch`, see [`docs/gateway-api.md`](../../docs/gateway-api.md#tls)).
+Just point the hostname's DNS at the VPS.
 
 ## `deploy/` layout (the `_template`)
 

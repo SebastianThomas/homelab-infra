@@ -89,6 +89,21 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure the acme-dns secret
+        # Full combined JSON: { "<zone>": {username,password,fulldomain,subdomain,allowfrom}, ... }
+        # cert-manager reads it for DNS-01 (see infrastructure/cert-manager/cluster-issuer.yaml).
+        env:
+          ACME_DNS_JSON: ${{ secrets.ACME_DNS_JSON }}
+        run: |
+          kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${ACME_DNS_JSON}" ]; then
+            kubectl -n cert-manager create secret generic acme-dns \
+              --from-literal=acmedns.json="${ACME_DNS_JSON}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          else
+            echo "::warning::ACME_DNS_JSON not set - the DNS-01 wildcard cert (gateway-tls) will not issue. See docs/gateway-api.md#tls"
+          fi
+
       - name: Apply infrastructure + apps
         run: kubernetes/bootstrap.sh
 

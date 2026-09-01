@@ -1,13 +1,21 @@
 # ACME / Let's Encrypt ClusterIssuers.
 #
-# Live: Traefik is the public edge and these issue the gateway certs
-# (gateway-certs.yaml). The old host certbot is retired - see docs/nginx-edge.md.
+# DNS-01 via acme-dns. `sthomas.ch` DNS stays at wint.global; only the
+# `_acme-challenge.<zone>` names are CNAME-delegated to per-zone accounts on the
+# public auth.acme-dns.io. cert-manager sets the TXT there via the acme-dns API.
+# This is what lets `gateway-certs.yaml` be a single WILDCARD cert - no hostname
+# list, ever.
 #
-# HTTP-01 solver uses a temporary *Ingress* - cert-manager has no stable Gateway
-# API solver, and Traefik keeps its Ingress provider enabled precisely so this
-# keeps working alongside our HTTPRoute-based app routes. The VPS is publicly
-# reachable on :80, so no DNS API is needed. Per-host names (no wildcard -
-# Strato has no ACME DNS API).
+# The `acme-dns` Secret (ns cert-manager, key acmedns.json) maps each delegated
+# zone to its acme-dns account:
+#   {
+#     "sthomas.ch":                     { ...f08ee2f4... },  # apex + *.sthomas.ch (2 TXT, acme-dns keeps 2)
+#     "homelab.sthomas.ch":             { ...8f234690... },
+#     "std-dive-logger-dev.sthomas.ch": { ...22f337ca... },  # dev + prod share
+#     "std-dive-logger.sthomas.ch":     { ...22f337ca... }   # one account (2 TXT)
+#   }
+# The `deploy` workflow writes it from the `ACME_DNS_JSON` Environment secret
+# (see README "DNS"). Local `bootstrap.sh` runs: create the Secret by hand first.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -19,12 +27,14 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
-      - http01:
-          ingress:
-            ingressClassName: traefik
+      - dns01:
+          acmeDNS:
+            host: https://auth.acme-dns.io
+            accountSecretRef:
+              name: acme-dns
+              key: acmedns.json
 ---
-# Staging issuer for testing (higher rate limits, untrusted certs). Switch an
-# Ingress to this with cert-manager.io/cluster-issuer: letsencrypt-staging.
+# Staging issuer for testing (higher rate limits, untrusted certs).
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -36,6 +46,9 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
-      - http01:
-          ingress:
-            ingressClassName: traefik
+      - dns01:
+          acmeDNS:
+            host: https://auth.acme-dns.io
+            accountSecretRef:
+              name: acme-dns
+              key: acmedns.json

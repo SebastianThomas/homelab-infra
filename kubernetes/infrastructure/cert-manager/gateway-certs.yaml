@@ -1,50 +1,29 @@
 ---
-# Public TLS for the Traefik `websecure` listener (Gateway `traefik-gateway`,
-# kube-system). cert-manager solves HTTP-01 via a temporary Ingress served by
-# Traefik's Ingress provider - so this only completes once Traefik owns the
-# host's :80, i.e. after the host nginx is stopped.
+# ONE wildcard cert for the Traefik `websecure` listener (Gateway
+# `traefik-gateway`, kube-system). Issued via DNS-01 / acme-dns (see
+# cluster-issuer.yaml) - the only ACME method that can do wildcards.
 #
-# Two certs, not one SAN cert:
-#   - gateway-tls-homelab issues BEFORE the nginx flip (the wildcard vhost
-#     already forwards /.well-known/acme-challenge/ to Traefik), so grafana /
-#     headscale / *.homelab keep a valid cert across the flip.
-#   - gateway-tls-public only completes after the flip.
-# Independent renewal, and adding a bare name later can't break the homelab one.
+# A new app on `<anything>.sthomas.ch` or `<anything>.homelab.sthomas.ch` is
+# covered automatically - nothing to add here. Two-label names under
+# std-dive-logger are covered by their own wildcards (that app keeps a
+# `*.autocomplete`-style structure; its `_acme-challenge` zones are delegated
+# too). Add a `*.<newzone>.sthomas.ch` line + its acme-dns delegation only if a
+# future app introduces another two-label subdomain.
 #
-# Strato has no ACME DNS API -> no real wildcard; list every name and re-issue
-# when adding one. Renewal is automatic (~30d before expiry).
+# Renewal is automatic (~30d before expiry), fully hands-off.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: gateway-tls-homelab
+  name: gateway-tls
   namespace: kube-system
 spec:
-  secretName: gateway-tls-homelab
-  issuerRef:
-    name: letsencrypt-prod
-    kind: ClusterIssuer
-  dnsNames:
-    - grafana.homelab.sthomas.ch
-    - headscale.homelab.sthomas.ch
-    - genie-web.homelab.sthomas.ch
-    - kochbuch.homelab.sthomas.ch
-    - hansenberg-alumni-map.homelab.sthomas.ch
-    - hansenberg-alumni-map-dev.homelab.sthomas.ch
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: gateway-tls-public
-  namespace: kube-system
-spec:
-  secretName: gateway-tls-public
+  secretName: gateway-tls
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
   dnsNames:
     - sthomas.ch
-    - dev.sthomas.ch
-    - genie-web.sthomas.ch
-    - kochbuch.sthomas.ch
-    - hansenberg-alumni-map.sthomas.ch
-    - hansenberg-alumni-map-dev.sthomas.ch
+    - "*.sthomas.ch"
+    - "*.homelab.sthomas.ch"
+    - "*.std-dive-logger-dev.sthomas.ch"
+    - "*.std-dive-logger.sthomas.ch"

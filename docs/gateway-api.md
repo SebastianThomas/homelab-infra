@@ -69,37 +69,20 @@ kubectl -n myapp get httproute myapp \
 
 ## TLS
 
-**Today (nginx-edge):** the host nginx terminates TLS and proxies plain HTTP to
-Traefik. Nothing TLS-related in the cluster. See [`nginx-edge.md`](nginx-edge.md).
+**Nothing per app.** The `websecure` listener serves one cert-manager
+**wildcard** cert (`gateway-tls`: `sthomas.ch`, `*.sthomas.ch`,
+`*.homelab.sthomas.ch`, …), issued via **DNS-01 / acme-dns**. Any new
+`HTTPRoute` hostname under a covered zone is already valid — no cert edit, no
+listener change.
 
-### TLS at the flip
-
-When the cluster becomes the public edge, add an HTTPS listener to the Gateway
-via the chart values:
-
-```yaml
-gateway:
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  listeners:
-    web:
-      port: 8000
-      protocol: HTTP
-      namespacePolicy: { from: All }
-    websecure:
-      port: 8443                    # the `websecure` entrypoint
-      protocol: HTTPS
-      namespacePolicy: { from: All }
-      certificateRefs:
-        - name: homelab-gateway-tls  # cert-manager creates/fills this Secret
-```
-
-cert-manager (with the Gateway annotation) provisions the cert into that Secret.
-Its HTTP-01 solver still creates a temporary **Ingress**, which Traefik's Ingress
-provider serves — that provider stays enabled for exactly this reason, so the
-`ClusterIssuer` solver config in
-[`../kubernetes/infrastructure/cert-manager/cluster-issuer.yaml`](../kubernetes/infrastructure/cert-manager/cluster-issuer.yaml)
-needs no change.
-
-Per-host certs instead of one SAN cert: give each `HTTPRoute` host its own
-listener + `certificateRefs`, or attach a `Certificate` resource per host.
+- Traefik's Gateway API provider is `certificateRefs`-only (no per-route ACME,
+  no entrypoint `certResolver` — the router's `tls` section from the listener
+  overrides it). So the wildcard on the shared listener is how every route gets
+  TLS.
+- DNS-01 (not HTTP-01) because only DNS-01 can issue `*.example.com`. `sthomas.ch`
+  DNS stays at wint.global; just the `_acme-challenge.<zone>` names are
+  CNAME-delegated to per-zone accounts on `auth.acme-dns.io`. Config:
+  [`../kubernetes/infrastructure/cert-manager/`](../kubernetes/infrastructure/cert-manager/).
+- A future app that needs a **two-label** subdomain (`x.y.sthomas.ch`) needs a
+  `*.y.sthomas.ch` line in `gateway-certs.yaml` + one acme-dns delegation for
+  `_acme-challenge.y.sthomas.ch`. One-label names never need anything.

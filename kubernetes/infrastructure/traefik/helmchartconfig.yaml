@@ -16,9 +16,9 @@
 #
 # EDGE: Traefik is the public edge. `service.spec.type: LoadBalancer` -> K3s
 # ServiceLB (klipper) binds the host's :80/:443 to this Service. TLS terminates
-# here with cert-manager-issued certs (infrastructure/cert-manager/
-# gateway-certs.yaml -> the websecure `certificateRefs` below). HTTP redirects
-# to HTTPS at the `web` entrypoint (`ports.web.redirectTo`).
+# here with a single cert-manager DNS-01 WILDCARD cert (`gateway-tls`, see
+# infrastructure/cert-manager/) - a new app hostname needs no change here. HTTP
+# redirects to HTTPS at the `web` entrypoint (`ports.web.redirectTo`).
 # History (host nginx + certbot as edge, and the flip): docs/nginx-edge.md.
 #
 # NOTE: the Traefik chart (v40) renders the Service spec straight from
@@ -65,11 +65,14 @@ spec:
           protocol: HTTPS
           namespacePolicy:
             from: All
-          # cert-manager fills these Secrets (Certificates in
-          # infrastructure/cert-manager/gateway-certs.yaml). Traefik serves
-          # whichever matches the request's SNI. Every HTTPRoute attaches to
-          # both listeners, so HTTP and HTTPS work with no per-route TLS config.
+          # `gateway-tls` is one DNS-01 WILDCARD cert covering *.sthomas.ch,
+          # *.homelab.sthomas.ch, etc. (cert-manager + acme-dns - see
+          # infrastructure/cert-manager/). A new app hostname is covered
+          # automatically, no change here. The old per-name gateway-tls-homelab
+          # / gateway-tls-public secrets are kept only until the wildcard is
+          # confirmed live, then dropped (their Certificates are already gone).
           certificateRefs:
+            - name: gateway-tls
             - name: gateway-tls-homelab
             - name: gateway-tls-public
 

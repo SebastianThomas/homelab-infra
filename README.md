@@ -86,6 +86,7 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 100y` |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
 | `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
+| `ACME_DNS_JSON` | acme-dns accounts for the DNS-01 wildcard cert — one combined JSON `{ "<zone>": {username,password,fulldomain,subdomain,allowfrom}, … }`. `deploy` writes it to Secret `cert-manager/acme-dns`. See [DNS](#2-dns). |
 
 > GitHub masks secret values in workflow logs, so `SSH_HOST` / `KUBE_API` etc.
 > show up as `***` in run output — expected.
@@ -105,6 +106,26 @@ No wildcard support at your DNS host? Add a CNAME per name instead
 
 `ts.homelab.sthomas.ch` (the MagicDNS base domain) needs **no** record — it is
 answered inside the tailnet only.
+
+**TLS delegation.** Traefik serves one cert-manager DNS-01 *wildcard* cert. If
+your DNS host has no ACME API (wint.global, Strato, …), CNAME-delegate the
+challenge names to [acme-dns](https://github.com/joohoi/acme-dns):
+
+1. Register once per zone: `curl -sX POST https://auth.acme-dns.io/register`
+   (save each JSON). One account per `_acme-challenge.<zone>` name — the
+   apex + `*` of the same zone share one; more than 2 challenges on one account
+   collide (acme-dns keeps the last 2 TXT).
+2. At your DNS host: `_acme-challenge.sthomas.ch`,
+   `_acme-challenge.homelab.sthomas.ch`, … → the returned `<uuid>.auth.acme-dns.io`.
+3. Combine the JSONs keyed by zone and store as the **`ACME_DNS_JSON`**
+   Environment secret (the `deploy` workflow writes it to `cert-manager/acme-dns`):
+   ```bash
+   jq -n '{ "sthomas.ch": input, "homelab.sthomas.ch": input }' \
+     ~/acmedns-sthomas.json ~/acmedns-homelab.json | pbcopy
+   ```
+
+See [`docs/gateway-api.md`](docs/gateway-api.md#tls) and
+`kubernetes/infrastructure/cert-manager/`.
 
 ### 3. Inventory & version
 
@@ -164,15 +185,9 @@ and open `…/admin`.
 ### 7. Grafana
 
 `deploy` brings up VictoriaMetrics + VictoriaLogs + Grafana (~40 dashboards, VM
-and VL datasources pre-wired) at `https://grafana.homelab.sthomas.ch`. The
-`*.homelab.sthomas.ch` nginx wildcard vhost already routes it — the only host
-step is the cert:
-
-```bash
-sudo certbot certonly --nginx --cert-name homelab-cluster --expand -d grafana.homelab.sthomas.ch
-```
-
-Log in as `admin`:
+and VL datasources pre-wired) at `https://grafana.homelab.sthomas.ch` — its
+HTTPRoute attaches to the shared Traefik Gateway, TLS is the wildcard cert
+(nothing per-app). Log in as `admin`:
 
 ```bash
 kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
