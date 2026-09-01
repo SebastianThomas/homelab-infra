@@ -47,7 +47,8 @@ runs:
       uses: tailscale/github-action@v4
       with:
         authkey: ${{ inputs.tailscale-authkey }}
-        hostname: gha-homelab
+        # Per-run node name so a queued/overlapping run can't fight over it.
+        hostname: gha-homelab-${{ github.run_id }}-${{ github.run_attempt }}
         # --accept-dns so the runner resolves *.ts.<domain> via MagicDNS.
         args: --login-server=${{ inputs.headscale-url }} --accept-dns
         ping: ${{ inputs.tailnet-ping }}
