@@ -86,9 +86,8 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     server_name headscale.homelab.sthomas.ch;
 
     ssl_certificate     /etc/letsencrypt/live/genie-web.sthomas.ch/fullchain.pem;  # updated by `certbot --expand` in step 3
@@ -117,6 +116,9 @@ server {
 sudo ln -s /etc/nginx/sites-available/homelab-cluster /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+> `listen 443 ssl http2;` is the inline form for nginx < 1.25.1 (the VM runs
+> 1.24). On newer nginx use `listen 443 ssl;` + a separate `http2 on;`.
 
 The `proxy_*` timeout/upgrade/buffering directives matter for **headscale** (and
 websocket apps). Plain HTTP apps don't need them — for those a bare
