@@ -84,6 +84,8 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `HEADPLANE_API_KEY` | `headscale apikeys create --expiration 8760h` output (set after first deploy) |
 | `TS_PREAUTH_KEY` | Headscale pre-auth key for the K3s node — `--reusable --expiration 100y` (**not** ephemeral) |
 | `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 100y` |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
+| `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
 
 > GitHub masks secret values in workflow logs, so `SSH_HOST` / `KUBE_API` etc.
 > show up as `***` in run output — expected.
@@ -96,7 +98,7 @@ A/CNAME — **no Cloudflare proxy**, it breaks the Tailscale control protocol):
 | Name | Type | Value | Covers |
 |---|---|---|---|
 | `homelab.sthomas.ch` | CNAME (or A) | `h2977839.stratoserver.net` (or `81.169.131.24`) | the K3s API on `:6443` |
-| `*.homelab.sthomas.ch` | CNAME | `homelab.sthomas.ch` | Headscale + every app — one wildcard, no per-app records |
+| `*.homelab.sthomas.ch` | CNAME | `homelab.sthomas.ch` | Headscale, Grafana + every app — one wildcard, no per-app records |
 
 No wildcard support at your DNS host? Add a CNAME per name instead
 (`headscale.homelab.sthomas.ch`, then one per app, all → `homelab.sthomas.ch`).
@@ -130,7 +132,8 @@ export KUBECONFIG=$PWD/../kubeconfig/kube-cp-01.yaml
 
 Run the **`deploy`** workflow (or `kubernetes/bootstrap.sh` locally). It applies,
 in order: Traefik config → cert-manager + issuers → CloudNativePG + catalog →
-Headscale/Headplane → the platform scaffold of each `apps/<name>/`.
+Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the platform
+scaffold of each `apps/<name>/`.
 
 ### 5b. HTTP routing
 
@@ -157,6 +160,20 @@ curl -sf https://headscale.homelab.sthomas.ch/health   # -> 200
 ```
 
 and open `…/admin`.
+
+### 7. Grafana
+
+`deploy` brings up VictoriaMetrics + VictoriaLogs + Grafana (~40 dashboards, VM
+and VL datasources pre-wired). Add an nginx vhost + cert for
+`grafana.homelab.sthomas.ch` (same shape as headscale — see
+[`kubernetes/infrastructure/monitoring/README.md`](kubernetes/infrastructure/monitoring/README.md)),
+then log in as `admin`:
+
+```bash
+kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
+```
+
+(or set `GRAFANA_ADMIN_PASSWORD` in the `production` Environment before the run).
 
 ---
 
@@ -204,7 +221,7 @@ Full walkthrough + templates: [`kubernetes/apps/README.md`](kubernetes/apps/READ
 
 | | |
 |---|---|
-| `kubernetes/infrastructure/` | cluster-wide services (Gateway/Traefik, TLS, DB operator, Headscale) |
+| `kubernetes/infrastructure/` | cluster-wide services (Gateway/Traefik, TLS, DB operator, Headscale, monitoring) |
 | `kubernetes/apps/<name>/` | the platform side of an app (namespace, RBAC, database, `HTTPRoute`) |
 | the app's own repo | its `Deployment` / `Service` and released version |
 

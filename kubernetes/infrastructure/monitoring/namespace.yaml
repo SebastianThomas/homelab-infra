@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  # Deliberately NOT node-pinned: node-exporter and the VictoriaLogs collector
+  # are DaemonSets that must run on every node, and monitoring should follow the
+  # RPi worker when it joins. vmsingle/vlsingle/Grafana carry local-path PVCs, so
+  # they pin themselves to whichever node bound the volume (kube-cp-01 today).

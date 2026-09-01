@@ -1,0 +1,19 @@
+# Grafana admin login. bootstrap.sh / the deploy workflow create this
+# automatically (random password, or GRAFANA_ADMIN_PASSWORD from the GitHub
+# Environment). Only apply this by hand if you want to set a specific password:
+#
+#   kubectl -n monitoring create secret generic grafana-admin \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password="$(openssl rand -base64 24)"
+#
+# Read the current password back with:
+#   kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: monitoring
+type: Opaque
+stringData:
+  admin-user: admin
+  admin-password: "change-me"

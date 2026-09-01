@@ -43,7 +43,19 @@ kubectl apply --server-side --force-conflicts \
 kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s
 kubectl apply -k "${here}/infrastructure/cloudnative-pg"
 
-step "Application scaffolding (namespace / RBAC / database / ingress)"
+step "Monitoring (VictoriaMetrics + VictoriaLogs + Grafana)"
+# Ensure the Grafana admin login exists before the chart's Grafana pod starts.
+# The deploy workflow may have already set it from GRAFANA_ADMIN_PASSWORD.
+kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring
+kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1 || \
+  kubectl -n monitoring create secret generic grafana-admin \
+    --from-literal=admin-user=admin \
+    --from-literal=admin-password="$(openssl rand -base64 24)"
+# Installed via the in-cluster helm-controller (K3s HelmChart CRs) - async, so
+# no rollout wait here. Check: kubectl -n monitoring get helmchart,pods
+kubectl apply -k "${here}/infrastructure/monitoring"
+
+step "Application scaffolding (namespace / RBAC / database / HTTPRoute)"
 # Only the platform side of each app lives here. The Deployment + Service are
 # owned and applied by the app's own repo (see kubernetes/apps/README.md).
 # Directories starting with "_" (e.g. _template) are skipped.

@@ -1,0 +1,152 @@
+# VictoriaMetrics k8s stack: VM operator + vmsingle (metrics TSDB) + vmagent
+# (scraper) + vmalert + alertmanager + VictoriaLogs (vlsingle) + kube-state-metrics
+# + node-exporter + Grafana (with default dashboards, alerting rules and the VM /
+# VL datasources pre-wired). This is the VictoriaMetrics equivalent of
+# kube-prometheus-stack - standard, batteries-included.
+#
+# Installed through K3s's built-in helm-controller (same mechanism as the
+# bundled Traefik). Watch it with:
+#   kubectl -n monitoring get helmchart victoria-metrics-k8s-stack
+#   kubectl -n monitoring logs job/helm-install-victoria-metrics-k8s-stack
+#
+# The log collector (a DaemonSet) is a separate chart:
+#   helmchart-victoria-logs-collector.yaml
+#
+# Grafana admin credentials come from the `grafana-admin` Secret, created by
+# bootstrap.sh (random password) or the deploy workflow (GRAFANA_ADMIN_PASSWORD).
+# See README.md.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: victoria-metrics-k8s-stack
+  namespace: monitoring
+spec:
+  repo: https://victoriametrics.github.io/helm-charts
+  chart: victoria-metrics-k8s-stack
+  # renovate: chart=victoria-metrics-k8s-stack
+  version: "0.91.2"
+  targetNamespace: monitoring
+  valuesContent: |-
+    # No fullnameOverride: resources are `victoria-metrics-k8s-stack-*` and the
+    # operator CRs' services are `vmsingle-victoria-metrics-k8s-stack` etc.
+
+    victoria-metrics-operator:
+      # The pre-delete CRD-cleanup Job's name would exceed the 63-char label
+      # limit with this release name. We keep the CRDs on uninstall anyway
+      # (helm.sh/resource-policy: keep), so the cleanup hook is pure downside.
+      crds:
+        cleanup:
+          enabled: false
+      resources:
+        requests: { cpu: 25m, memory: 64Mi }
+        limits: { memory: 192Mi }
+
+    # ── Metrics ──────────────────────────────────────────────────────────────
+    vmsingle:
+      spec:
+        retentionPeriod: "15d"
+        storage:
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 15Gi
+        # VM sizes its caches off the memory limit; keep it away from the hard
+        # cap and cap query concurrency (this is a small, shared node).
+        extraArgs:
+          memory.allowedPercent: "50"
+          search.maxConcurrentRequests: "4"
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { memory: 900Mi }
+
+    vmagent:
+      spec:
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 320Mi }
+
+    vmalert:
+      spec:
+        resources:
+          requests: { cpu: 25m, memory: 64Mi }
+          limits: { memory: 128Mi }
+
+    alertmanager:
+      # Runs with the chart's default "blackhole" receiver - alerts are visible
+      # in Grafana / the alertmanager UI but nothing is paged out. Add a
+      # receiver under `alertmanager.config` when you want notifications.
+      spec:
+        resources:
+          requests: { cpu: 10m, memory: 32Mi }
+          limits: { memory: 80Mi }
+
+    # ── Logs (VictoriaLogs) ──────────────────────────────────────────────────
+    # Enabling vlsingle here also auto-wires the "VictoriaLogs" Grafana
+    # datasource. The node-level collector is helmchart-victoria-logs-collector.yaml.
+    vlsingle:
+      enabled: true
+      spec:
+        retentionPeriod: "15d"
+        storage:
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 15Gi
+        extraArgs:
+          memory.allowedPercent: "50"
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 768Mi }
+
+    # ── K3s: kube-controller-manager / scheduler / kube-proxy run inside the
+    #    single k3s process and aren't scrapable the standard way; there is no
+    #    etcd (SQLite datastore). Disable those scrapes + their alert rules so
+    #    the stack has no permanently-down targets. ────────────────────────────
+    kubeControllerManager: { enabled: false }
+    kubeScheduler: { enabled: false }
+    kubeEtcd: { enabled: false }
+    kubeProxy: { enabled: false }
+    defaultRules:
+      groups:
+        kube-scheduler.rules: { enabled: false }
+        kubernetes-system-controller-manager: { enabled: false }
+        kubernetes-system-scheduler: { enabled: false }
+
+    # ── Grafana ──────────────────────────────────────────────────────────────
+    grafana:
+      # RWO local-path PVC - the old pod must release it before the new one starts.
+      deploymentStrategy:
+        type: Recreate
+      plugins:
+        - victoriametrics-metrics-datasource
+        - victoriametrics-logs-datasource
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      persistence:
+        enabled: true
+        size: 2Gi
+      grafana.ini:
+        server:
+          root_url: https://grafana.homelab.sthomas.ch
+        analytics:
+          reporting_enabled: false
+          check_for_updates: false
+      resources:
+        requests: { cpu: 50m, memory: 160Mi }
+        limits: { memory: 448Mi }
+      sidecar:
+        resources:
+          requests: { cpu: 10m, memory: 48Mi }
+          limits: { memory: 128Mi }
+
+    kube-state-metrics:
+      resources:
+        requests: { cpu: 25m, memory: 64Mi }
+        limits: { memory: 160Mi }
+
+    prometheus-node-exporter:
+      resources:
+        requests: { cpu: 10m, memory: 24Mi }
+        limits: { memory: 64Mi }

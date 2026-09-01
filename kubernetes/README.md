@@ -10,7 +10,8 @@ kubernetes/
 │   ├── traefik/          # tunes the bundled K3s Traefik; enables the Gateway API provider
 │   ├── cert-manager/     # Let's Encrypt ClusterIssuers (HTTP-01)
 │   ├── cloudnative-pg/   # Postgres operator image catalog
-│   └── headscale/        # Headscale control server + Headplane UI
+│   ├── headscale/        # Headscale control server + Headplane UI
+│   └── monitoring/       # VictoriaMetrics + VictoriaLogs + Grafana
 └── apps/                 # platform side of each app (namespace/RBAC/db/HTTPRoute);
     ├── _template/        #   the Deployment+Service live in the app's own repo
     └── <name>/           # see apps/README.md
@@ -34,10 +35,12 @@ kubernetes/bootstrap.sh
 
 `bootstrap.sh` applies, in order: Traefik config → cert-manager (pinned
 upstream) + issuers → CloudNativePG (pinned upstream) + image catalog →
-Headscale/Headplane → the platform side of every `apps/*/` (skips `apps/_*`).
+Headscale/Headplane → monitoring (VictoriaMetrics/Logs + Grafana) → the platform
+side of every `apps/*/` (skips `apps/_*`).
 
-Upstream operator versions are pinned at the top of `bootstrap.sh`
-(`CERT_MANAGER_VERSION`, `CNPG_VERSION`) and bumped by Renovate.
+Upstream versions are pinned: operator manifests at the top of `bootstrap.sh`
+(`CERT_MANAGER_VERSION`, `CNPG_VERSION`), Helm charts as `# renovate: chart=…`
+comments in `infrastructure/monitoring/`. All bumped by Renovate.
 
 ## Where things go
 

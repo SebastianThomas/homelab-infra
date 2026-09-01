@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+# Two K3s HelmChart resources (metrics stack + log collector) installed by the
+# in-cluster helm-controller, plus the namespace and the Grafana route.
+# `grafana-admin.example.yaml` is NOT applied here - the Secret is created by
+# bootstrap.sh / the deploy workflow. See README.md.
+resources:
+  - namespace.yaml
+  - helmchart-victoria-metrics.yaml
+  - helmchart-victoria-logs-collector.yaml
+  - httproute.yaml

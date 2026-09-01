@@ -1,0 +1,23 @@
+# VictoriaLogs collector - a DaemonSet (built on vlagent) that tails every pod's
+# container logs off /var/log and ships them to the vlsingle server deployed by
+# helmchart-victoria-metrics.yaml.
+#
+# Standard VictoriaLogs Kubernetes collection path. Pod name / namespace /
+# container are indexed as log stream fields; pod labels are attached.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: victoria-logs-collector
+  namespace: monitoring
+spec:
+  repo: https://victoriametrics.github.io/helm-charts
+  chart: victoria-logs-collector
+  # renovate: chart=victoria-logs-collector
+  version: "0.3.7"
+  targetNamespace: monitoring
+  valuesContent: |-
+    remoteWrite:
+      - url: http://vlsingle-victoria-metrics-k8s-stack.monitoring.svc.cluster.local:9428
+    resources:
+      requests: { cpu: 25m, memory: 64Mi }
+      limits: { memory: 192Mi }

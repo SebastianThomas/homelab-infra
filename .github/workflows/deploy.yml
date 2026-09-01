@@ -59,6 +59,21 @@ jobs:
             echo "::warning::HEADPLANE_COOKIE_SECRET / HEADPLANE_API_KEY not set - Headplane stays NotReady. See kubernetes/infrastructure/headscale/README.md"
           fi
 
+      - name: Ensure the Grafana admin secret
+        env:
+          GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_PASS: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${GRAFANA_PASS}" ]; then
+            kubectl -n monitoring create secret generic grafana-admin \
+              --from-literal=admin-user="${GRAFANA_USER:-admin}" \
+              --from-literal=admin-password="${GRAFANA_PASS}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          else
+            echo "::notice::GRAFANA_ADMIN_PASSWORD not set - bootstrap.sh will generate a random one. Read it back per kubernetes/infrastructure/monitoring/README.md"
+          fi
+
       - name: Apply infrastructure + apps
         run: kubernetes/bootstrap.sh
 

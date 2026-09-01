@@ -144,10 +144,11 @@ sudo k3s kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}'
 Fits your existing certbot flow — add the hostname to the live cert:
 
 ```bash
-sudo certbot --nginx --expand -d headscale.homelab.sthomas.ch
+sudo certbot --nginx --expand -d headscale.homelab.sthomas.ch -d grafana.homelab.sthomas.ch
 ```
 
-(one `-d` per cluster app; or `-d app1... -d app2...` in one go). Auto-renews
+(one `-d` per cluster host — `headscale`, `grafana`, then one per app; or
+`--expand` again later). Auto-renews
 with the timer you already have. A wildcard `*.homelab.sthomas.ch` is nicer but
 needs DNS-01 → delegating `homelab.sthomas.ch` to a provider with an API
 (deSEC/Cloudflare, free) — optional.
