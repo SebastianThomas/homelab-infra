@@ -31,20 +31,17 @@ In nginx-edge mode you also add the hostname to the host nginx vhost + cert —
 [`docs/nginx-edge.md`](../../docs/nginx-edge.md).
 
 Commit + push → the `deploy` workflow applies the namespace, RBAC, DB and
-route. Then hand the app repo its credentials (GitHub Environment / repo
-secrets on the **app** repo):
+route. Then set these secrets in the **app repo**'s `production` GitHub
+Environment (the `deployer` SA is scoped to that one namespace). The `kubectl`
+below needs `export KUBECONFIG=$PWD/kubeconfig/kube-cp-01.yaml`:
 
-```bash
-export KUBECONFIG=$PWD/kubeconfig/kube-cp-01.yaml
-kubectl -n <name> get secret deployer-token -o jsonpath='{.data.token}'  | base64 -d   # -> KUBE_TOKEN
-kubectl -n <name> get secret deployer-token -o jsonpath='{.data.ca\.crt}'              # -> KUBE_CA
-# KUBE_API = https://homelab.sthomas.ch:6443   (public :6443 open)
-#   or, once :6443 is firewalled to the tailnet:
-#     KUBE_API = https://kube-cp-01.ts.homelab.sthomas.ch:6443
-#   + pass tailscale-authkey / headscale-url to deploy-to-k8s (see below)
-```
-
-The `deployer` SA is scoped to that one namespace.
+| Secret | Value |
+|---|---|
+| `KUBE_API` | `https://kube-cp-01.ts.homelab.sthomas.ch:6443` (public `:6443` is firewalled to the tailnet) |
+| `KUBE_CA` | `kubectl -n <name> get secret deployer-token -o jsonpath='{.data.ca\.crt}'` (already base64) |
+| `KUBE_TOKEN` | `kubectl -n <name> get secret deployer-token -o jsonpath='{.data.token}' \| base64 -d` |
+| `HEADSCALE_URL` | `https://headscale.homelab.sthomas.ch` |
+| `TS_AUTHKEY` | `headscale preauthkeys create --user <id> --reusable --ephemeral --expiration 100y` |
 
 ## Workload side — in the app repo
 
@@ -66,7 +63,8 @@ annotation pins it). Wire the DB from the operator-generated secret:
               secretKeyRef: { name: <name>-db-app, key: uri }
 ```
 
-`.github/workflows/release.yml`:
+`.github/workflows/release.yml` — build/push the image, then the two shared
+actions from [`homelab-actions`](https://github.com/SebastianThomas/homelab-actions):
 
 ```yaml
 name: release
@@ -78,21 +76,30 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    permissions: { contents: read, packages: write }
     steps:
       - uses: actions/checkout@v4
-      # ... build + push ghcr.io/OWNER/<name>:${{ github.ref_name }} ...
-      - uses: SebastianThomas/homelab-infra/.github/actions/deploy-to-k8s@main
+
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+      - uses: docker/build-push-action@v6
+        with: { push: true, tags: "ghcr.io/${{ github.repository }}:${{ github.ref_name }}" }
+
+      - uses: SebastianThomas/homelab-actions/headscale-connect@v1
         with:
-          app: <name>
-          image: ghcr.io/OWNER/<name>:${{ github.ref_name }}
-          kube-api: ${{ secrets.KUBE_API }}
-          kube-ca: ${{ secrets.KUBE_CA }}
-          kube-token: ${{ secrets.KUBE_TOKEN }}
+          auth-key:     ${{ secrets.TS_AUTHKEY }}
+          login-server: ${{ secrets.HEADSCALE_URL }}
+      - uses: SebastianThomas/homelab-actions/kube-deploy@v1
+        with:
+          server:    ${{ secrets.KUBE_API }}
+          ca:        ${{ secrets.KUBE_CA }}
+          token:     ${{ secrets.KUBE_TOKEN }}
+          namespace: <name>
+          image:     ghcr.io/${{ github.repository }}:${{ github.ref_name }}
 ```
 
-(For the composite action to be reachable from a **private** app repo, enable it
-under `homelab-infra` → Settings → Actions → "Accessible from repositories owned
-by the user". Public repos need nothing.)
+(If `homelab-actions` is private: enable it under its Settings → Actions →
+"Accessible from repositories owned by the user". See its README.)
 
 ## Versioning & rollback
 

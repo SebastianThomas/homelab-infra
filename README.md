@@ -164,10 +164,15 @@ and open `…/admin`.
 ### 7. Grafana
 
 `deploy` brings up VictoriaMetrics + VictoriaLogs + Grafana (~40 dashboards, VM
-and VL datasources pre-wired). Add an nginx vhost + cert for
-`grafana.homelab.sthomas.ch` (same shape as headscale — see
-[`kubernetes/infrastructure/monitoring/README.md`](kubernetes/infrastructure/monitoring/README.md)),
-then log in as `admin`:
+and VL datasources pre-wired) at `https://grafana.homelab.sthomas.ch`. The
+`*.homelab.sthomas.ch` nginx wildcard vhost already routes it — the only host
+step is the cert:
+
+```bash
+sudo certbot certonly --nginx --cert-name homelab-cluster --expand -d grafana.homelab.sthomas.ch
+```
+
+Log in as `admin`:
 
 ```bash
 kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
@@ -210,10 +215,10 @@ own repo with **no commit here**:
   a scoped `deployer` ServiceAccount, database, `HTTPRoute`. Set it up once:
   `cp -r kubernetes/apps/_template kubernetes/apps/<name>`, adjust, push.
 - **The app's repo** owns its `Deployment` + `Service` and deploys itself on
-  release via the reusable composite action
-  `SebastianThomas/homelab-infra/.github/actions/deploy-to-k8s@main`, pinning
-  whatever version it wants (git tag → image tag). Rollback = redeploy an older
-  tag or `kubectl rollout undo`.
+  release via the shared composite actions in
+  [`SebastianThomas/homelab-actions`](https://github.com/SebastianThomas/homelab-actions)
+  (`headscale-connect` + `kube-deploy`), pinning whatever version it wants (git
+  tag → image tag). Rollback = redeploy an older tag or `kubectl rollout undo`.
 
 Full walkthrough + templates: [`kubernetes/apps/README.md`](kubernetes/apps/README.md).
 
