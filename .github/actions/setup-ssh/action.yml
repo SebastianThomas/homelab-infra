@@ -42,13 +42,34 @@ runs:
         chmod 600 ~/.ssh/id_ed25519
         printf '%s\n' "${{ inputs.ssh-known-hosts }}" > ~/.ssh/known_hosts
 
+    # Direct `tailscale up` rather than tailscale/github-action - that action
+    # deprecates authkeys in favour of Tailscale-SaaS OAuth clients, which
+    # Headscale has no equivalent for.
     - name: Join the Headscale tailnet
       if: inputs.tailscale-authkey != ''
-      uses: tailscale/github-action@v4
-      with:
-        authkey: ${{ inputs.tailscale-authkey }}
+      shell: bash
+      env:
+        TS_AUTHKEY: ${{ inputs.tailscale-authkey }}
+        LOGIN_SERVER: ${{ inputs.headscale-url }}
         # Per-run node name so a queued/overlapping run can't fight over it.
-        hostname: gha-homelab-${{ github.run_id }}-${{ github.run_attempt }}
-        # --accept-dns so the runner resolves *.ts.<domain> via MagicDNS.
-        args: --login-server=${{ inputs.headscale-url }} --accept-dns
-        ping: ${{ inputs.tailnet-ping }}
+        TS_HOSTNAME: gha-homelab-${{ github.run_id }}-${{ github.run_attempt }}
+        PING_TARGET: ${{ inputs.tailnet-ping }}
+      run: |
+        set -euo pipefail
+        command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
+        # Ephemeral: Headscale drops the node when this runner disconnects.
+        sudo tailscale up \
+          --login-server="$LOGIN_SERVER" \
+          --authkey="$TS_AUTHKEY" \
+          --hostname="$TS_HOSTNAME" \
+          --accept-dns \
+          --timeout=60s
+        [ -n "$PING_TARGET" ] || exit 0
+        echo "Waiting for $PING_TARGET over the tailnet..."
+        for _ in $(seq 1 30); do
+          tailscale ping -c 1 --timeout 3s "$PING_TARGET" >/dev/null 2>&1 && { echo "reachable"; exit 0; }
+          sleep 2
+        done
+        echo "::error::$PING_TARGET not reachable over the tailnet after ~2 min"
+        tailscale status || true
+        exit 1
