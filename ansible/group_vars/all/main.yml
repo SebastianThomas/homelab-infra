@@ -74,7 +74,7 @@ firewall_enabled: true
 
 # flannel's host interface. "tailscale0" = mesh over the tailnet (needs every
 # node on it). "" = flannel picks the default route iface (single-node only).
-k3s_flannel_iface: "tailscale0"
+k3s_flannel_iface: "" # "tailscale0"
 
 # Headscale control server the nodes' Tailscale authenticates against.
 k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
