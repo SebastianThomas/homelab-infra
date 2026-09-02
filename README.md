@@ -32,10 +32,12 @@ over the Headscale tailnet — see [Adding a worker node](#adding-a-worker-node)
 
 Node labels/taints (set by Ansible via `--node-label` / `--node-taint`):
 `homelab.sthomas.ch/location=strato` on the VPS; `location=home` +
-`homelab.sthomas.ch/edge=true:NoSchedule` on the Pi (so nothing lands there
-unless a namespace opts in). Workloads are pinned per-namespace — the K3s
-server runs the `PodNodeSelector` / `PodTolerationRestriction` admission
-plugins, so app repos ship placement-agnostic Deployments.
+`homelab.sthomas.ch/edge=true:NoSchedule` on the Pi.
+
+Namespaces are **not pinned to a node** — pods schedule wherever there is room,
+so adding a node lets it pick up work with no per-repo edits. The Pi is kept out
+by its taint, which nothing tolerates by default, and anything with a
+`local-path` PVC is fixed to one node anyway by the PV's `nodeAffinity`.
 
 ### Running a workload on the Pi
 

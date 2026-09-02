@@ -196,10 +196,8 @@
     state: restarted
   when: k3s_flannel_iface == "tailscale0"
 
-# A literal block with explicit continuations - a folded (>-) scalar keeps the
-# newlines of more-indented lines, which silently split the pipeline in two.
-# awk (not jq) so the whole filter stays on one short line, and it compares the
-# address field exactly rather than substring-matching 100.64.0.2 in .29.
+# Keep this a literal block: a folded (>-) scalar keeps the newlines of
+# more-indented lines and silently splits the pipeline.
 - name: Drop stale node objects for this host (old name, same tailnet IP)
   ansible.builtin.shell:
     executable: /bin/bash

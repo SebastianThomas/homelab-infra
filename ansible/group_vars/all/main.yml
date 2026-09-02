@@ -57,46 +57,17 @@ common_disable_swap: true
 # --- Firewall (firewall role, VPS only) ------------------------------
 firewall_enabled: true
 
-# ===========================================================================
-# Multi-node: pod mesh over the Headscale tailnet.
-#
-# kube-cp-01 has a public IP; a worker (the Pi at home) is behind NAT, so the
-# two can only reach each other over the tailnet. K3s flannel therefore runs on
-# the `tailscale0` interface on EVERY node - the VXLAN endpoints are the nodes'
-# 100.64.x.x addresses and the MTU is derived from tailscale0 (1280), which is
-# consistent cluster-wide.
-#
-# Each node runs a standalone `tailscaled` (kube-cp-01 already does) and must be
-# on the tailnet BEFORE its first `provision` run - `tailscale up` is a manual,
-# one-time step per node (it needs console/LAN access the runner doesn't have).
-# Full procedure: README "Adding a worker node".
-# ===========================================================================
+# --- Multi-node: pod mesh over the Headscale tailnet -----------------------
+# The Pi worker is behind NAT, so the nodes can only reach each other over the
+# tailnet. Every node runs a standalone tailscaled and must be on the tailnet
+# before its first `provision` - `tailscale up` is a manual, one-time step per
+# node. See README "Adding a worker node".
 
-# flannel's host interface. "tailscale0" = mesh over the tailnet (needs every
-# node on it). "" = flannel picks the default route iface (single-node only).
-#
-# ON. kube-worker-01 is behind NAT, so its default-route address is a private
-# LAN IP kube-cp-01 can never reach. Riding tailscale0 makes each node's VXLAN
-# endpoint its 100.64.x.x address - the only address pair that works in both
-# directions. This is what K3s's own `--vpn-auth` configures for NAT'd nodes,
-# so it is the supported shape rather than a workaround. It also yields one
-# cluster-wide MTU (tailscale0's 1280 - 50 = 1230 pod MTU); the alternative,
-# `--flannel-external-ip`, keeps the 1500-derived 1450 and would fragment every
-# full-size packet entering the tunnel.
-#
-# Two real effects, both handled:
-#   * kube-cp-01's node InternalIP becomes its tailnet address. Public ingress
-#     is unaffected - klipper/svclb binds :80/:443 as hostPorts on every host
-#     address (verified while this was on: grafana 302, soil-metrics 200).
-#   * k3s must not start before tailscale0 exists -> wait-tailscale0 ExecStartPre
-#     plus After=tailscaled drop-ins (roles/common, k3s_cp, k3s_worker).
-#
-# The Sept 2 stall, where kube-cp-01 silently lost its Headscale control
-# connection for ~2.5h, was originally blamed on flannel's routes. That looks
-# wrong: the CP carries the cross-node route (10.42.2.0/24 via 10.42.2.0 dev
-# flannel.1) today with this setting OFF and logs no netmon complaints at all.
-# The UDP-GRO ethtool tuning that landed in the same change is the better
-# suspect and has since been removed. The watchdog stays regardless.
+# flannel's host interface. "tailscale0" puts the VXLAN endpoints on the nodes'
+# 100.64.x.x addresses with one cluster-wide MTU; "" uses the default-route
+# iface (single-node only). Side effect: kube-cp-01's InternalIP becomes its
+# tailnet address - ingress is unaffected, klipper binds hostPorts on every
+# address. k3s waits for the interface via wait-tailscale0 + After=tailscaled.
 k3s_flannel_iface: "tailscale0"
 
 # Headscale control server the nodes' Tailscale authenticates against.

@@ -17,11 +17,24 @@ kubernetes/
     └── _template/        # copy-paste source for an app repo's deploy/ - NOT applied here
 ```
 
-Node placement is a **namespace annotation**
-(`scheduler.alpha.kubernetes.io/node-selector`) — the K3s server runs the
-`PodNodeSelector` + `PodTolerationRestriction` admission plugins, so every pod
-in a namespace (app Deployments *and* CloudNativePG) lands on the chosen node
-with no per-workload config.
+Namespaces are **not pinned to a node**. Pods schedule wherever the cluster has
+room, so adding a node lets it pick up work without editing every app repo.
+
+Two things still constrain placement without any annotation:
+
+- The Pi (`kube-worker-01`) carries `homelab.sthomas.ch/edge=true:NoSchedule`.
+  Nothing tolerates it by default, so "unpinned" never means "might land on the
+  Pi" — it has to be opted into explicitly.
+- Anything with a `local-path` PVC is fixed to one node anyway: the PV carries
+  `nodeAffinity` to whichever node first bound it.
+
+To deliberately place a namespace **on** the Pi, set *both*
+`scheduler.alpha.kubernetes.io/node-selector` and
+`scheduler.alpha.kubernetes.io/defaultTolerations` (the K3s server runs the
+`PodNodeSelector` + `PodTolerationRestriction` admission plugins). With only the
+selector, pods stay `Pending` — see the root README, "Running a workload on the
+Pi". Note the selector is enforced, not merged: a pod whose own `nodeSelector`
+contradicts the namespace annotation is **rejected**, not just left unscheduled.
 
 ## Deploy
 

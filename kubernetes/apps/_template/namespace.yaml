@@ -2,13 +2,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: myapp
-  annotations:
-    # Pin every pod in this namespace (app Deployments AND the CloudNativePG
-    # instance) to one node. This is why app repos don't need any nodeSelector.
-    #
-    # Strato VPS (default):
-    scheduler.alpha.kubernetes.io/node-selector: homelab.sthomas.ch/location=strato
-    #
-    # Raspberry Pi instead - swap the line above for these two:
-    # scheduler.alpha.kubernetes.io/node-selector: homelab.sthomas.ch/location=home
-    # scheduler.alpha.kubernetes.io/defaultTolerations: '[{"key":"homelab.sthomas.ch/edge","operator":"Equal","value":"true","effect":"NoSchedule"}]'
+  # To place this namespace on the Pi, both annotations are needed - with only
+  # the selector, pods stay Pending (the node is tainted NoSchedule):
+  #
+  # annotations:
+  #   scheduler.alpha.kubernetes.io/node-selector: homelab.sthomas.ch/location=home
+  #   scheduler.alpha.kubernetes.io/defaultTolerations: '[{"key":"homelab.sthomas.ch/edge","operator":"Equal","value":"true","effect":"NoSchedule"}]'

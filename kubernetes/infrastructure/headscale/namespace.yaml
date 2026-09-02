@@ -2,8 +2,3 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: headscale
-  annotations:
-    # Pin headscale + Headplane to the VPS (local-path storage is node-local;
-    # the SQLite DB and noise key must not migrate). Needs the PodNodeSelector
-    # admission plugin, enabled by the k3s_cp role.
-    scheduler.alpha.kubernetes.io/node-selector: homelab.sthomas.ch/location=strato

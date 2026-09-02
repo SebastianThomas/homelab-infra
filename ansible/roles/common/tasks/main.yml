@@ -127,17 +127,9 @@
         state: started
 
 # --- flannel-over-tailscale plumbing (k3s_flannel_iface = tailscale0) -------
-# k3s rides tailscale0, so the interface has to exist before k3s starts, and a
-# lost control connection has to heal on its own. Two guards: wait-tailscale0
-# (an ExecStartPre on k3s / k3s-agent) and a watchdog timer.
-#
-# The watchdog was originally added because flannel's per-node VXLAN routes
-# (10.42.x.0/24 via 10.42.x.0 dev flannel.1) were thought to confuse tailscaled's
-# link monitor into picking a pod address as the default gateway. That diagnosis
-# no longer holds - the control plane carries exactly that route with
-# k3s_flannel_iface off and logs no netmon complaints - but the failure it
-# guards against (a silent, non-recovering loss of the Headscale session) did
-# happen once for ~2.5h, so the guard stays.
+# k3s rides tailscale0, so the interface must exist before k3s starts, and a lost
+# control connection has to heal on its own (it once stalled ~2.5h). Two guards:
+# wait-tailscale0 (ExecStartPre on k3s / k3s-agent) and a watchdog timer.
 - name: Flannel-over-tailscale guards
   when: k3s_flannel_iface | default('') == "tailscale0"
   block:
@@ -168,17 +160,13 @@
           # Managed by Ansible - roles/common.
           # Restart tailscaled when it has lost its session with the control server.
           #
-          # `tailscale status` is not a usable signal on its own: during the Sept 2
-          # stall this host reported Self.Online=true and Health=[] for ~2.5h while
-          # headscale had long since dropped the session, so a Self.Online check
-          # could never have fired. Headscale's node list is authoritative and
-          # headscale runs on the control plane, so ask it there; Self.Online stays
-          # as the fallback on hosts that cannot reach it.
+          # Headscale's node list is authoritative and runs on the control plane,
+          # so ask it there. Self.Online is only a fallback: it can report true
+          # while headscale has already dropped the session.
           #
-          # Restarting tailscaled drops CI's SSH and remote kubectl, so it is rate
-          # limited: it takes $threshold consecutive bad checks, and at most one
-          # restart per $cooldown. Anything inconclusive (API down, mid k3s
-          # restart) exits without touching the counter.
+          # A restart drops CI's SSH and remote kubectl, so it is rate limited to
+          # $threshold consecutive bad checks and one restart per $cooldown.
+          # Inconclusive checks exit without touching the counter.
           set -eu
 
           state=/run/tailscaled-watchdog.fails        # /run is tmpfs: resets on boot
