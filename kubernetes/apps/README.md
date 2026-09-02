@@ -11,7 +11,9 @@ What homelab-infra *does* provide:
 
 - `infrastructure/app-deployer/` — one shared `app-deployer` ServiceAccount +
   ClusterRole. Its token is the `KUBE_TOKEN` for **all** app repos. Scope: deploy
-  apps (any namespace), not touch the platform.
+  apps (any namespace), not touch the platform. App-level custom resources it
+  covers: workloads + Services + PVCs + ConfigMaps/Secrets, Gateway API
+  `HTTPRoute`s, Traefik `Middleware`s, CNPG `Cluster`s, namespaced Roles.
 - the shared Traefik `Gateway`, cert-manager, the CNPG operator + image catalog.
 
 ## Per app — one-time

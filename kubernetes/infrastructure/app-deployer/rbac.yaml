@@ -4,8 +4,9 @@
 #
 # The token (Secret `ci/app-deployer-token`) is the KUBE_TOKEN for all app
 # repos. Scope: deploy apps, not touch the platform - no nodes, no PV/StorageClass,
-# no ClusterRole(Binding)s, no CRDs, no Gateway/webhooks/helm. It CAN write to any
-# namespace incl. kube-system, which is acceptable for a single-tenant homelab.
+# no ClusterRole(Binding)s, no CRD definitions, no Gateway/webhooks/helm. App-level
+# custom resources it DOES manage: CNPG Clusters and Traefik Middlewares. It CAN
+# write to any namespace incl. kube-system - acceptable for a single-tenant homelab.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -44,6 +45,12 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes", "grpcroutes", "tlsroutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Traefik Middlewares - namespaced route-level behaviour (path rewrite, headers,
+  # rate-limit, auth) that an HTTPRoute pulls in via an ExtensionRef filter. Not
+  # the Gateway/IngressRoute/TLS CRDs - just this one, in the app's own namespace.
+  - apiGroups: ["traefik.io"]
+    resources: ["middlewares"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
