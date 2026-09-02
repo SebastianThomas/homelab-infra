@@ -188,6 +188,14 @@
   delay: 10
   changed_when: false
 
+# The agent (re)start churns flannel's routes - bounce tailscaled so its link
+# monitor re-reads a now-stable table (see roles/common notes).
+- name: Re-evaluate tailscaled after the agent restart
+  ansible.builtin.systemd:
+    name: tailscaled
+    state: restarted
+  when: k3s_flannel_iface == "tailscale0"
+
 - name: Drop stale node objects for this host (old name, same tailnet IP)
   ansible.builtin.shell:
     executable: /bin/bash

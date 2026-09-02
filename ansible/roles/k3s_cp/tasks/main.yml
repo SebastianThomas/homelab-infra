@@ -119,6 +119,15 @@
   delay: 10
   changed_when: false
 
+# The k3s (re)start churns flannel's routes; bounce tailscaled so its link
+# monitor re-reads a now-stable table instead of staying wedged on a stale
+# (pod-address) gateway. Cheap (~5s), and provision is infrequent.
+- name: Re-evaluate tailscaled after the k3s restart
+  ansible.builtin.systemd:
+    name: tailscaled
+    state: restarted
+  when: k3s_flannel_iface == "tailscale0"
+
 - name: Give the login user a kubeconfig (~/.kube/config on the node)
   when:
     - k3s_cp_user_kubeconfig | bool

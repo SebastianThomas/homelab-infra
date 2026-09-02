@@ -126,24 +126,81 @@
         enabled: true
         state: started
 
-# Used as an ExecStartPre by k3s / k3s-agent when flannel rides tailscale0, so
-# the node doesn't try to start before the interface is addressed.
-- name: Install the wait-for-tailscale0 helper
-  ansible.builtin.copy:
-    dest: /usr/local/bin/wait-tailscale0
-    owner: root
-    group: root
-    mode: "0755"
-    content: |
-      #!/bin/sh
-      # Managed by Ansible - roles/common
-      n=0
-      until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do
-        n=$((n + 1))
-        [ "$n" -ge 90 ] && { echo "tailscale0 has no IPv4 after 90s" >&2; exit 1; }
-        sleep 1
-      done
+# --- flannel-over-tailscale plumbing (k3s_flannel_iface = tailscale0) -------
+# flannel's per-node VXLAN routes (10.42.x.0/24 via 10.42.x.0 dev flannel.1)
+# can confuse tailscaled's link monitor into picking a pod address as the
+# default gateway - it then silently loses its control connection to Headscale
+# and doesn't recover. Two guards: k3s waits for tailscale0 before starting,
+# and a watchdog restarts tailscaled if it drops off the control server.
+- name: flannel-over-tailscale guards
   when: k3s_flannel_iface | default('') == "tailscale0"
+  block:
+    - name: Install the wait-for-tailscale0 helper (k3s/k3s-agent ExecStartPre)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/wait-tailscale0
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # Managed by Ansible - roles/common
+          n=0
+          until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do
+            n=$((n + 1))
+            [ "$n" -ge 90 ] && { echo "tailscale0 has no IPv4 after 90s" >&2; exit 1; }
+            sleep 1
+          done
+
+    - name: Install the tailscaled watchdog
+      ansible.builtin.copy:
+        dest: /usr/local/bin/tailscaled-watchdog
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # Managed by Ansible - roles/common. Restart tailscaled if it is
+          # running but not connected to the control server.
+          systemctl is-active --quiet tailscaled || exit 0
+          online=$(tailscale status --json 2>/dev/null | jq -r '.Self.Online // "unknown"')
+          if [ "$online" = "false" ]; then
+            logger -t tailscaled-watchdog "control connection down - restarting tailscaled"
+            systemctl restart tailscaled
+          fi
+
+    - name: tailscaled watchdog unit + timer
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ item.name }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ item.content }}"
+      loop:
+        - name: tailscaled-watchdog.service
+          content: |
+            [Unit]
+            Description=Restart tailscaled if it drops off the control server
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/tailscaled-watchdog
+        - name: tailscaled-watchdog.timer
+          content: |
+            [Unit]
+            Description=Run the tailscaled watchdog periodically
+            [Timer]
+            OnBootSec=2min
+            OnUnitActiveSec=3min
+            [Install]
+            WantedBy=timers.target
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Enable the tailscaled watchdog timer
+      ansible.builtin.systemd:
+        name: tailscaled-watchdog.timer
+        enabled: true
+        state: started
+        daemon_reload: true
 
 # --- Tailscale exit node (per host: tailscale_exit_node: true) ----------
 # Route tailnet clients' traffic out through this node. Needs the node already
