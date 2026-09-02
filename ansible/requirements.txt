@@ -4,5 +4,5 @@
 #
 # Renovate keeps these current (datasource=pypi).
 ansible~=14.3
-ansible-lint~=25.5
+ansible-lint~=26.8
 yamllint~=1.37
