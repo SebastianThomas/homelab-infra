@@ -1,8 +1,9 @@
 # <name>.homelab.sthomas.ch -> this app's Service, via the shared Traefik Gateway
-# in kube-system (its HTTP listener accepts routes from every namespace).
-# DNS: the *.homelab.sthomas.ch wildcard. TLS: host nginx (homelab-cluster cert,
-# grown with `certbot ... --expand -d <name>.homelab.sthomas.ch`). See
-# docs/gateway-api.md + docs/nginx-edge.md.
+# in kube-system (listeners accept routes from every namespace; no sectionName =
+# HTTP + HTTPS both). DNS: the *.homelab.sthomas.ch wildcard. TLS: the cluster
+# wildcard cert `gateway-tls` (*.sthomas.ch + *.homelab.sthomas.ch) already
+# covers it - nothing to do per app. A bare *.sthomas.ch name works too; add it
+# as a second hostname. See docs/gateway-api.md.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

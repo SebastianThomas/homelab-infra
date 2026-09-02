@@ -11,7 +11,7 @@ the [Headplane](https://github.com/tale/headplane) web UI, both in the
 | DERP | Tailscale's public relays (no embedded DERP) |
 | MagicDNS base domain | `ts.homelab.sthomas.ch` |
 | Routing | `httproute.yaml` (Gateway API) → `traefik-gateway` in `kube-system` — see [`docs/gateway-api.md`](../../../docs/gateway-api.md) |
-| TLS | host nginx + certbot today (nginx-edge); cert-manager at the flip |
+| TLS | the cluster wildcard cert (`gateway-tls`), terminated at Traefik |
 | Headplane mode | "limited" — own Deployment, API-key auth. Manages nodes / users / pre-auth keys / routes / ACLs. Editing headscale's `config.yaml` from the UI is intentionally not enabled (config stays in git). |
 
 Config is in [`files/headscale-config.yaml`](files/headscale-config.yaml) and

@@ -1,9 +1,7 @@
 # Gateway API route for headscale + Headplane. Attaches to the shared Traefik
-# Gateway in kube-system (its HTTP listener allows routes from all namespaces).
-#
-# TLS is terminated upstream by the host nginx (nginx-edge mode), so there is no
-# TLS config here. When the cluster becomes the public edge, TLS moves onto the
-# Gateway listener - see docs/gateway-api.md and docs/nginx-edge.md.
+# Gateway in kube-system (listeners allow routes from all namespaces). TLS is
+# the cluster wildcard cert on the websecure listener - nothing per-route.
+# See docs/gateway-api.md.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

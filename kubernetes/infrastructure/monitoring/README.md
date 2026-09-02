@@ -21,17 +21,10 @@ mechanism as the bundled Traefik) via the two `HelmChart` resources here — no
 
 ## Access
 
-`https://grafana.homelab.sthomas.ch` — the `grafana` `HTTPRoute` →
-`traefik-gateway` → host nginx's `*.homelab.sthomas.ch` wildcard vhost
-(nginx-edge mode). DNS is covered by the wildcard. The only per-app host step is
-growing the shared cert:
-
-```bash
-sudo certbot certonly --nginx --cert-name homelab-cluster --expand \
-  -d grafana.homelab.sthomas.ch   # + every other *.homelab name already on it
-```
-
-Full picture: [`../../../docs/nginx-edge.md`](../../../docs/nginx-edge.md).
+`https://grafana.homelab.sthomas.ch` — the `grafana` `HTTPRoute` attaches to
+`traefik-gateway` in `kube-system`; Traefik is the public edge. DNS is the
+`*.homelab.sthomas.ch` wildcard, TLS is the cluster wildcard cert
+(`gateway-tls`). Nothing per-app.
 
 ## Grafana admin login
 

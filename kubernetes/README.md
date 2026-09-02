@@ -8,7 +8,7 @@ kubernetes/
 ├── bootstrap.sh          # ordered, idempotent apply of infrastructure/
 ├── infrastructure/       # cluster-wide platform services
 │   ├── traefik/          # tunes the bundled K3s Traefik; enables the Gateway API provider
-│   ├── cert-manager/     # Let's Encrypt ClusterIssuers (HTTP-01)
+│   ├── cert-manager/     # Let's Encrypt ClusterIssuers + the DNS-01 wildcard cert
 │   ├── cloudnative-pg/   # Postgres operator image catalog
 │   ├── headscale/        # Headscale control server + Headplane UI
 │   ├── monitoring/       # VictoriaMetrics + VictoriaLogs + Grafana

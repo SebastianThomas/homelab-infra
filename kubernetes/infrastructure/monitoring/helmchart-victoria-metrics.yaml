@@ -49,9 +49,11 @@ spec:
     # ── Metrics ──────────────────────────────────────────────────────────────
     vmsingle:
       spec:
-        retentionPeriod: "15d"
+        retentionPeriod: "10d"
         storage:
           storageClassName: local-path
+          # local-path PVCs can't shrink in place (and don't reserve disk - the
+          # number is nominal), so 15Gi stays; retention is the real knob.
           resources:
             requests:
               storage: 15Gi
@@ -91,9 +93,10 @@ spec:
     vlsingle:
       enabled: true
       spec:
-        retentionPeriod: "15d"
+        retentionPeriod: "10d"
         storage:
           storageClassName: local-path
+          # see the vmsingle note - 15Gi is nominal, retention is the real knob.
           resources:
             requests:
               storage: 15Gi
@@ -144,7 +147,8 @@ spec:
           check_for_updates: false
       resources:
         requests: { cpu: 50m, memory: 160Mi }
-        limits: { memory: 448Mi }
+        # 448Mi OOM-killed it (anon-rss ~420Mi at kill); 640 gives headroom.
+        limits: { memory: 640Mi }
       sidecar:
         resources:
           requests: { cpu: 10m, memory: 48Mi }

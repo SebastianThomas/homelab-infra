@@ -9,10 +9,8 @@
 # The `acme-dns` Secret (ns cert-manager, key acmedns.json) maps each delegated
 # zone to its acme-dns account:
 #   {
-#     "sthomas.ch":                     { ...f08ee2f4... },  # apex + *.sthomas.ch (2 TXT, acme-dns keeps 2)
-#     "homelab.sthomas.ch":             { ...8f234690... },
-#     "std-dive-logger-dev.sthomas.ch": { ...22f337ca... },  # dev + prod share
-#     "std-dive-logger.sthomas.ch":     { ...22f337ca... }   # one account (2 TXT)
+#     "sthomas.ch":         { ...f08ee2f4... },  # apex + *.sthomas.ch (2 TXT, acme-dns keeps 2)
+#     "homelab.sthomas.ch": { ...8f234690... }
 #   }
 # The `deploy` workflow writes it from the `ACME_DNS_JSON` Environment secret
 # (see README "DNS"). Local `bootstrap.sh` runs: create the Secret by hand first.

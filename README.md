@@ -162,12 +162,11 @@ Inside the cluster, routing is **Gateway API** — `HTTPRoute` objects attach to
 shared `traefik-gateway` served by the K3s-bundled Traefik (Gateway API CRDs
 ship with K3s). See [`docs/gateway-api.md`](docs/gateway-api.md).
 
-At the edge: the Strato VM already runs nginx + certbot for other sites, so
-**nginx is the public edge** and reverse-proxies `*.homelab.sthomas.ch` to
-Traefik's pinned `ClusterIP` (`10.43.66.94:80` — `service.spec.type: ClusterIP`,
-so klipper stops holding the host's `:80`/`:443`). Add the nginx vhost + cert per
-[`docs/nginx-edge.md`](docs/nginx-edge.md), which also has the one-step flip to
-Traefik-as-edge once the legacy sites are migrated.
+At the edge: **Traefik is the public edge**. `service.spec.type: LoadBalancer`
+→ K3s ServiceLB (klipper) binds the host's `:80`/`:443` straight to Traefik;
+`ports.web.redirectTo` sends HTTP → HTTPS. TLS terminates on one cert-manager
+DNS-01 **wildcard** cert (`gateway-tls`, `*.sthomas.ch` + `*.homelab.sthomas.ch`),
+so a new hostname needs nothing at the edge.
 
 ### 6. Finish Headscale
 

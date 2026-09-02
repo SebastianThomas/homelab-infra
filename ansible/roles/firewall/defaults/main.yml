@@ -7,7 +7,7 @@
 
 firewall_allow_rules:
   - { port: 22, proto: tcp, comment: "SSH" }
-  - { port: 80, proto: tcp, comment: "HTTP (Traefik / ACME HTTP-01)" }
+  - { port: 80, proto: tcp, comment: "HTTP (Traefik - redirects to HTTPS)" }
   - { port: 443, proto: tcp, comment: "HTTPS (Traefik)" }
   # The Kubernetes API (6443) is reachable only over the tailnet - see
   # firewall_tailnet_iface. Add it back here as `{ port: 6443, proto: tcp }`

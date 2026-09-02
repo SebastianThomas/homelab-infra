@@ -1,6 +1,6 @@
 # grafana.homelab.sthomas.ch -> Grafana. Attaches to the shared Traefik Gateway
-# (see docs/gateway-api.md). TLS is terminated by the host nginx today
-# (nginx-edge mode) - add the vhost + cert per docs/nginx-edge.md.
+# (see docs/gateway-api.md); TLS is the cluster wildcard cert on the websecure
+# listener - nothing per-route.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

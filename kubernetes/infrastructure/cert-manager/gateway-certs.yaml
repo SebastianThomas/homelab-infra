@@ -3,12 +3,11 @@
 # `traefik-gateway`, kube-system). Issued via DNS-01 / acme-dns (see
 # cluster-issuer.yaml) - the only ACME method that can do wildcards.
 #
-# A new app on `<anything>.sthomas.ch` or `<anything>.homelab.sthomas.ch` is
-# covered automatically - nothing to add here. Two-label names under
-# std-dive-logger are covered by their own wildcards (that app keeps a
-# `*.autocomplete`-style structure; its `_acme-challenge` zones are delegated
-# too). Add a `*.<newzone>.sthomas.ch` line + its acme-dns delegation only if a
-# future app introduces another two-label subdomain.
+# Every app hostname is one label deep (`<app>.sthomas.ch` /
+# `<app>.homelab.sthomas.ch`), so a new app is covered automatically - nothing
+# to add here. A future app that needs a TWO-label name (`x.y.sthomas.ch`) needs
+# a `*.y.sthomas.ch` line below + one acme-dns delegation for
+# `_acme-challenge.y.sthomas.ch` (see docs/gateway-api.md#tls).
 #
 # Renewal is automatic (~30d before expiry), fully hands-off.
 apiVersion: cert-manager.io/v1
@@ -25,5 +24,3 @@ spec:
     - sthomas.ch
     - "*.sthomas.ch"
     - "*.homelab.sthomas.ch"
-    - "*.std-dive-logger-dev.sthomas.ch"
-    - "*.std-dive-logger.sthomas.ch"
