@@ -126,6 +126,25 @@
         enabled: true
         state: started
 
+# Used as an ExecStartPre by k3s / k3s-agent when flannel rides tailscale0, so
+# the node doesn't try to start before the interface is addressed.
+- name: Install the wait-for-tailscale0 helper
+  ansible.builtin.copy:
+    dest: /usr/local/bin/wait-tailscale0
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Managed by Ansible - roles/common
+      n=0
+      until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do
+        n=$((n + 1))
+        [ "$n" -ge 90 ] && { echo "tailscale0 has no IPv4 after 90s" >&2; exit 1; }
+        sleep 1
+      done
+  when: k3s_flannel_iface | default('') == "tailscale0"
+
 # --- Tailscale exit node (per host: tailscale_exit_node: true) ----------
 # Route tailnet clients' traffic out through this node. Needs the node already
 # on the tailnet. Route approval (headscale nodes approve-routes -r 0.0.0.0/0,::/0)

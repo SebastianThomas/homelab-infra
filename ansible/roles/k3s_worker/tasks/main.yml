@@ -108,7 +108,7 @@
       After=tailscaled.service
       Wants=tailscaled.service
       [Service]
-      ExecStartPre=/bin/sh -c 'n=0; until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do n=$((n+1)); [ $n -ge 90 ] && exit 1; sleep 1; done'
+      ExecStartPre=/usr/local/bin/wait-tailscale0
   when: k3s_flannel_iface == "tailscale0"
   notify: Restart k3s-agent
 
@@ -190,6 +190,7 @@
 
 - name: Drop stale node objects for this host (old name, same tailnet IP)
   ansible.builtin.shell:
+    executable: /bin/bash
     cmd: >-
       set -o pipefail;
       k3s kubectl get nodes -o json

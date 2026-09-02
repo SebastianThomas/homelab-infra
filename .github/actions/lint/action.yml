@@ -9,8 +9,6 @@ runs:
   using: composite
   steps:
     - uses: ./.github/actions/setup-ansible
-      with:
-        extra-packages: ansible-lint yamllint
 
     - uses: azure/setup-kubectl@v5
 

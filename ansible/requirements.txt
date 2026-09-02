@@ -1,0 +1,8 @@
+# pip dependencies for CI - installed by .github/actions/setup-ansible with uv.
+# Galaxy collections (community.general, ansible.posix) ship inside the `ansible`
+# package, so requirements.yml is not installed separately.
+#
+# Renovate keeps these current (datasource=pypi).
+ansible~=14.3
+ansible-lint~=25.5
+yamllint~=1.37

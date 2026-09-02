@@ -1,14 +1,9 @@
 name: Set up Ansible
 description: >
-  Install Python + Ansible (and optional extras) with uv, which is ~10x faster
-  than pip and caches the resolved wheels across runs. community.general and
-  ansible.posix ship inside the full `ansible` package, so no Galaxy step.
-
-inputs:
-  extra-packages:
-    description: Extra packages, space-separated (e.g. "ansible-lint yamllint").
-    required: false
-    default: ""
+  Install Python + Ansible + the linters with uv (fast, and it caches the
+  resolved wheels across runs, keyed on ansible/requirements.txt).
+  community.general / ansible.posix ship inside the `ansible` package, so
+  requirements.yml is not installed separately.
 
 runs:
   using: composite
@@ -20,8 +15,8 @@ runs:
     - uses: astral-sh/setup-uv@v6
       with:
         enable-cache: true
-        cache-suffix: ansible
+        cache-dependency-glob: ansible/requirements.txt
 
-    - name: Install Ansible
+    - name: Install Ansible + linters
       shell: bash
-      run: uv pip install --system ansible ${{ inputs.extra-packages }}
+      run: uv pip install --system -r ansible/requirements.txt
