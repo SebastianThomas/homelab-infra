@@ -44,8 +44,9 @@ kube-apiserver-arg:
 {% if k3s_flannel_iface %}
 
 # Pod mesh over the tailnet: flannel's VXLAN rides the tailscale0 interface
-# (endpoint = this node's 100.64.x.x, MTU from tailscale0). Needs a standalone
-# tailscaled up before k3s starts - a systemd drop-in orders k3s After= it.
-# InternalIP stays the public address, so klipper / public ingress are untouched.
+# (endpoint = this node's 100.64.x.x, MTU from tailscale0). k3s then also uses
+# that IP as the node InternalIP - fine, klipper still binds :80/:443 on every
+# host address so public ingress is unaffected. Needs a standalone tailscaled up
+# before k3s starts: a systemd drop-in orders k3s After= it.
 flannel-iface: "{{ k3s_flannel_iface }}"
 {% endif %}

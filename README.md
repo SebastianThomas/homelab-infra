@@ -306,8 +306,10 @@ sudo k3s kubectl -n headscale exec deploy/headscale -- headscale preauthkeys exp
 
 1. Put the node's tailnet IP in its inventory block (`node_ip:`), commit.
 2. Run **`provision` `limit: k3s_cp`** first — adds `flannel-iface: tailscale0`
-   to the server and restarts k3s (~1 min; running pods and Traefik keep
-   serving). Take a `/var/lib/rancher/k3s` backup first (see [Backups](#backups)).
+   and restarts k3s (~1 min; running pods and Traefik keep serving). The CP's
+   node InternalIP moves to `100.64.0.2` — cosmetic, klipper still serves
+   `:80`/`:443` on the public IP. Take a `/var/lib/rancher/k3s` backup first
+   (see [Backups](#backups)).
 3. Run **`provision` `limit: kube-worker-01`** — installs the agent (joins over
    `https://100.64.0.2:6443`), sets IP forwarding + the UDP-GRO tuning.
 4. Verify: `kubectl get nodes -o wide` (worker `Ready`), then a tolerating test

@@ -119,7 +119,7 @@
 - name: Tailscale exit node
   when:
     - tailscale_exit_node | default(false) | bool
-    - "'tailscale0' in ansible_interfaces"
+    - "'tailscale0' in ansible_facts.interfaces"
   block:
     - name: Enable IP forwarding for the exit node
       ansible.posix.sysctl:
@@ -164,7 +164,7 @@
           Wants=network-online.target
           [Service]
           Type=oneshot
-          ExecStart=/usr/sbin/ethtool -K {{ ansible_default_ipv4.interface }} rx-udp-gro-forwarding on rx-gro-list off
+          ExecStart=/usr/sbin/ethtool -K {{ ansible_facts.default_ipv4.interface }} rx-udp-gro-forwarding on rx-gro-list off
           [Install]
           WantedBy=multi-user.target
       register: common_udp_gro_unit

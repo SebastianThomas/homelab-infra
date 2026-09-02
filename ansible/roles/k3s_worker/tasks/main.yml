@@ -2,7 +2,7 @@
 - name: Require the node to be on the tailnet already
   ansible.builtin.assert:
     that:
-      - "'tailscale0' in ansible_interfaces"
+      - "'tailscale0' in ansible_facts.interfaces"
       - k3s_cp_tailscale_ip | length > 0
     fail_msg: >-
       This node joins over the Headscale tailnet but has no tailscale0 interface.
@@ -19,6 +19,43 @@
       tailnet IP (`tailscale ip -4` on the node) so the apiserver can reach the
       kubelet for `kubectl logs` / `exec`.
     success_msg: "node_ip = {{ node_ip }}"
+
+# --- Raspberry Pi / Ubuntu prerequisites the kubelet needs -----------------
+- name: Raspberry Pi prerequisites
+  when: ansible_facts.architecture == "aarch64"
+  block:
+    - name: Ensure vxlan / br_netfilter etc. are available (flannel needs them)
+      ansible.builtin.apt:
+        name: linux-modules-extra-raspi
+        state: present
+      failed_when: false      # only exists on the raspi kernel; built in elsewhere
+
+    - name: Load the vxlan module now
+      community.general.modprobe:
+        name: vxlan
+        state: present
+      failed_when: false
+
+    - name: Read the kernel cmdline
+      ansible.builtin.slurp:
+        src: /boot/firmware/cmdline.txt
+      register: k3s_worker_cmdline_raw
+
+    - name: Enable the memory + cpuset cgroup controllers on the kernel cmdline
+      ansible.builtin.copy:
+        dest: /boot/firmware/cmdline.txt
+        owner: root
+        group: root
+        mode: "0755"
+        content: "{{ k3s_worker_cmdline_raw.content | b64decode | trim }} cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1\n"
+      when: >-
+        'cgroup_enable=memory' not in (k3s_worker_cmdline_raw.content | b64decode)
+      register: k3s_worker_cmdline
+
+    - name: Reboot for the cgroup cmdline change (one-time)
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: k3s_worker_cmdline is defined and k3s_worker_cmdline is changed
 
 - name: Create the K3s config directory
   ansible.builtin.file:
