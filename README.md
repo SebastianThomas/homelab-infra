@@ -82,7 +82,7 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `K3S_TOKEN` | `openssl rand -hex 32` — the cluster join secret |
 | `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (exactly 32 chars; set after first deploy) |
 | `HEADPLANE_API_KEY` | `headscale apikeys create --expiration 8760h` output (set after first deploy) |
-| `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 100y` |
+| `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 8760h` (not `100y` — a headscale upgrade can reject those). Same value in every app repo. |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
 | `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
 | `ACME_DNS_JSON` | acme-dns accounts for the DNS-01 wildcard cert — one combined JSON `{ "<zone>": {username,password,fulldomain,subdomain,allowfrom}, … }`. `deploy` writes it to Secret `cert-manager/acme-dns`. See [DNS](#2-dns). |

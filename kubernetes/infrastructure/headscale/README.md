@@ -65,20 +65,30 @@ hs routes list
 `headscale preauthkeys create` takes the user **ID** (a number), not the name
 (`hs users list` to find it).
 
-**Expiry:** `--expiration` (default `1h`; accepts `30m`, `24h`, `30d`, `100y`).
-There is no "never" via the CLI. But a *registered node* does not expire —
-`node.expiry: 0` in our config — so a node stays connected even after its key
-expires. The key only needs to be valid at registration time.
+**Expiry:** `--expiration` (default `1h`; accepts `30m`, `24h`, `30d`, `8760h`).
+A *registered node* does not expire (`node.expiry: 0` in our config), so a node
+stays connected even after its key expires — the key only has to be valid at
+registration time.
+
+> **Don't use silly-long expirations like `100y`.** A Headscale upgrade
+> (v0.29 did this) can start rejecting pre-auth keys with far-future
+> expirations — established nodes keep working but every *new* CI runner then
+> fails at `tailscale up` (silent, 120 s timeout). Symptom: CI green, then all
+> runs fail at "Join the Headscale tailnet" with nothing in the headscale log.
+> Fix: create a fresh key, update `TS_AUTHKEY` everywhere (below), re-run.
 
 | Use | Command |
 |---|---|
 | **A device you register once** (your laptop, the VPS on the tailnet) | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
-| **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 100y` |
+| **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 8760h` |
 | **A K3s worker node** — registered once by hand (`tailscale up`), then persists | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` |
 
 `--ephemeral` = the node is removed from headscale as soon as it disconnects
 (the CI action runs `tailscale logout` on exit), so runner nodes never pile up.
-`--expiration 100y` is the community answer for "effectively permanent".
+
+`TS_AUTHKEY` lives as a **per-repo** secret in homelab-infra *and every app
+repo* (they run `headscale-connect`). Rotating it means updating all of them —
+or promote it to an org-level secret so it's one place.
 
 One-liner (needs `jq` locally):
 
@@ -90,8 +100,8 @@ kubectl -n headscale exec deploy/headscale -- headscale preauthkeys create --use
 List / expire keys:
 
 ```bash
-hs preauthkeys list --user <ID>
-hs preauthkeys expire --user <ID> --key <KEY>
+hs preauthkeys list                 # v0.29: no --user flag; shows all, with IDs
+hs preauthkeys expire --id <ID>
 ```
 
 Or do all of this in Headplane: **Users** → add → the user's ⋯ menu →
