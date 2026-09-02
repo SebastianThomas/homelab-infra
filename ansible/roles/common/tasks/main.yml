@@ -132,7 +132,7 @@
 # default gateway - it then silently loses its control connection to Headscale
 # and doesn't recover. Two guards: k3s waits for tailscale0 before starting,
 # and a watchdog restarts tailscaled if it drops off the control server.
-- name: flannel-over-tailscale guards
+- name: Flannel-over-tailscale guards
   when: k3s_flannel_iface | default('') == "tailscale0"
   block:
     - name: Install the wait-for-tailscale0 helper (k3s/k3s-agent ExecStartPre)
@@ -168,7 +168,7 @@
             systemctl restart tailscaled
           fi
 
-    - name: tailscaled watchdog unit + timer
+    - name: Tailscaled watchdog unit + timer
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ item.name }}"
         owner: root
