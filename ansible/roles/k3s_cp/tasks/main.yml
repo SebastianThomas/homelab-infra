@@ -66,7 +66,7 @@
       After=tailscaled.service
       Wants=tailscaled.service
       [Service]
-      ExecStartPre=/bin/sh -c 'for i in $(seq 1 90); do ip -4 addr show tailscale0 2>/dev/null | grep -q "inet " && exit 0; sleep 1; done; echo "tailscale0 has no IPv4 after 90s" >&2; exit 1'
+      ExecStartPre=/bin/sh -c 'n=0; until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do n=$((n+1)); [ $n -ge 90 ] && exit 1; sleep 1; done'
   when: k3s_flannel_iface == "tailscale0"
   notify: Restart k3s
 
