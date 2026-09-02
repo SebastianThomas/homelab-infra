@@ -19,7 +19,6 @@
 # here with a single cert-manager DNS-01 WILDCARD cert (`gateway-tls`, see
 # infrastructure/cert-manager/) - a new app hostname needs no change here. HTTP
 # redirects to HTTPS at the `web` entrypoint (`ports.web.redirectTo`).
-# History (host nginx + certbot as edge, and the flip): docs/nginx-edge.md.
 #
 # NOTE: the Traefik chart (v40) renders the Service spec straight from
 # `service.spec` - a top-level `service.type` is silently ignored. And do NOT
@@ -37,18 +36,21 @@ spec:
   valuesContent: |-
     service:
       spec:
-        # Traefik is the public edge (host nginx retired). type: LoadBalancer
-        # -> K3s ServiceLB (klipper) binds the host's :80/:443 to this Service.
+        # type: LoadBalancer -> K3s ServiceLB (klipper) binds the host's
+        # :80/:443 to this Service. Traefik is the public edge.
         type: LoadBalancer
-        # clusterIP kept pinned - harmless under LoadBalancer, and survives a
-        # svc recreate. (Was nginx's proxy_pass target before the flip.)
+        # clusterIP kept pinned - harmless under LoadBalancer, survives a svc
+        # recreate, and keeps a stable in-cluster address for the node itself.
         clusterIP: "10.43.66.94"
 
-    # Gateway API provider (Traefik's Ingress provider stays on too - cert-manager
-    # still solves HTTP-01 with a temporary Ingress).
+    # Gateway API is the only provider. The Ingress provider is off - nothing
+    # in the cluster uses Ingress and cert-manager issues via DNS-01 (no
+    # temporary HTTP-01 Ingress). The file/CRD providers stay at chart defaults.
     providers:
       kubernetesGateway:
         enabled: true
+      kubernetesIngress:
+        enabled: false
     gatewayClass:
       enabled: true
     gateway:
@@ -68,13 +70,9 @@ spec:
           # `gateway-tls` is one DNS-01 WILDCARD cert covering *.sthomas.ch,
           # *.homelab.sthomas.ch, etc. (cert-manager + acme-dns - see
           # infrastructure/cert-manager/). A new app hostname is covered
-          # automatically, no change here. The old per-name gateway-tls-homelab
-          # / gateway-tls-public secrets are kept only until the wildcard is
-          # confirmed live, then dropped (their Certificates are already gone).
+          # automatically, no change here.
           certificateRefs:
             - name: gateway-tls
-            - name: gateway-tls-homelab
-            - name: gateway-tls-public
 
     ports:
       web:
