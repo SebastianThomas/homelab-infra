@@ -33,9 +33,35 @@ over the Headscale tailnet — see [Adding a worker node](#adding-a-worker-node)
 Node labels/taints (set by Ansible via `--node-label` / `--node-taint`):
 `homelab.sthomas.ch/location=strato` on the VPS; `location=home` +
 `homelab.sthomas.ch/edge=true:NoSchedule` on the Pi (so nothing lands there
-unless a namespace opts in). Workloads are pinned per-namespace with a
-`scheduler.alpha.kubernetes.io/node-selector` annotation — the K3s server runs
-the `PodNodeSelector` / `PodTolerationRestriction` admission plugins.
+unless a namespace opts in). Workloads are pinned per-namespace — the K3s
+server runs the `PodNodeSelector` / `PodTolerationRestriction` admission
+plugins, so app repos ship placement-agnostic Deployments.
+
+### Running a workload on the Pi
+
+Annotate the app's namespace. **Both** annotations are needed: the selector
+picks the node, the toleration gets past the `NoSchedule` taint. With only the
+selector, pods stay `Pending` forever.
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-app
+  annotations:
+    scheduler.alpha.kubernetes.io/node-selector: "homelab.sthomas.ch/location=home"
+    scheduler.alpha.kubernetes.io/defaultTolerations: >-
+      [{"key":"homelab.sthomas.ch/edge","operator":"Equal",
+        "value":"true","effect":"NoSchedule"}]
+```
+
+The Pi is **arm64**, so every image in that namespace needs an `arm64` variant
+(build with `docker buildx --platform linux/amd64,linux/arm64`). A
+manifest-list image works on both nodes unchanged.
+
+Ingress is unaffected: Traefik stays on the VPS and reaches Pi pods over the
+flannel-on-tailscale mesh, so an `HTTPRoute` for a Pi workload looks like any
+other.
 
 ---
 
