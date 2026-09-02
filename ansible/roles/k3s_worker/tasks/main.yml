@@ -196,17 +196,19 @@
     state: restarted
   when: k3s_flannel_iface == "tailscale0"
 
+# A literal block with explicit continuations - a folded (>-) scalar keeps the
+# newlines of more-indented lines, which silently split the pipeline in two.
+# awk (not jq) so the whole filter stays on one short line, and it compares the
+# address field exactly rather than substring-matching 100.64.0.2 in .29.
 - name: Drop stale node objects for this host (old name, same tailnet IP)
   ansible.builtin.shell:
     executable: /bin/bash
-    cmd: >-
-      set -o pipefail;
-      k3s kubectl get nodes -o json
-      | jq -r --arg me '{{ inventory_hostname }}' --arg ip '{{ node_ip }}'
-        '.items[] | select(.metadata.name != $me)
-         | select([.status.addresses[]?.address] | index($ip))
-         | .metadata.name'
-      | xargs -r k3s kubectl delete node --ignore-not-found
+    cmd: |
+      set -o pipefail
+      k3s kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.addresses[*].address}{"\n"}{end}' \
+        | awk -v me='{{ inventory_hostname }}' -v ip='{{ node_ip }}' \
+            '$1 != me { for (i = 2; i <= NF; i++) if ($i == ip) { print $1; break } }' \
+        | xargs -r k3s kubectl delete node --ignore-not-found
   delegate_to: "{{ groups['k3s_cp'][0] }}"
   become: true
   register: k3s_worker_stale
