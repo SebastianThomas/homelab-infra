@@ -4,6 +4,9 @@
 token: "{{ vault_k3s_token }}"
 write-kubeconfig-mode: "0600"
 
+# Pin the node name so it never tracks a hostname change / cloud-init reset.
+node-name: "{{ inventory_hostname }}"
+
 # Embedded SQLite datastore is the default: no `cluster-init`, no
 # `datastore-endpoint`. The server stays schedulable (K3s adds no taint), so
 # kube-cp-01 can run the whole cluster on its own.

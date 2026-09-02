@@ -5,6 +5,10 @@ token: "{{ vault_k3s_token }}"
 # Joined over the tailnet - kube-cp-01's public :6443 is firewalled.
 server: "https://{{ k3s_cp_tailscale_ip }}:{{ k3s_api_port }}"
 
+# Pin the node name - the OS hostname on a fresh Pi is whatever the image
+# shipped (e.g. "pi4"), and cloud-init can reset it on reboot.
+node-name: "{{ inventory_hostname }}"
+
 node-label:
 {% for label in node_labels | default([]) %}
   - "{{ label }}"

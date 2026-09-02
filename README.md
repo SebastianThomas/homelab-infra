@@ -310,22 +310,41 @@ sudo k3s kubectl -n headscale exec deploy/headscale -- headscale preauthkeys exp
    node InternalIP moves to `100.64.0.2` — cosmetic, klipper still serves
    `:80`/`:443` on the public IP. Take a `/var/lib/rancher/k3s` backup first
    (see [Backups](#backups)).
-3. Run **`provision` `limit: kube-worker-01`** — installs the agent (joins over
-   `https://100.64.0.2:6443`), sets IP forwarding + the UDP-GRO tuning.
-4. Verify: `kubectl get nodes -o wide` (worker `Ready`), then a tolerating test
-   pod:
+3. Run **`provision` `limit: kube-worker-01`** — Pi prereqs (memory cgroup on
+   `/boot/firmware/cmdline.txt` + a reboot, `vxlan` module), the agent (joins
+   over `https://100.64.0.2:6443` with `node-name` pinned to the inventory
+   name), IP forwarding + UDP-GRO tuning for the exit node, and a
+   `~/.kube/config` for the login user pointing at the CP over the tailnet.
+   It also wipes stale agent state / deletes an old node object if the Pi first
+   registered under its image hostname.
+4. Verify: `kubectl get nodes -o wide` (`kube-worker-01` `Ready`), then a
+   tolerating test pod:
 
    ```bash
    kubectl run pi-test --image=busybox --restart=Never --rm -it \
      --overrides='{"spec":{"nodeSelector":{"homelab.sthomas.ch/location":"home"},
      "tolerations":[{"key":"homelab.sthomas.ch/edge","operator":"Exists"}]}}' \
-     -- sh -c 'nslookup kubernetes.default && wget -qO- -T5 https://kubernetes.default/healthz --no-check-certificate'
+     -- sh -c 'nslookup kubernetes.default.svc.cluster.local && wget -qO- -T5 -S https://kubernetes.default/healthz --no-check-certificate 2>&1 | head -1'
    ```
+
+   (DNS resolves + a `401` from the API both mean cross-node pod networking works.)
 
 **Scheduling onto it:** nothing lands on the Pi unless it opts in. A namespace
 does that with the annotations in
 [`kubernetes/apps/_template/namespace.yaml`](kubernetes/apps/_template/namespace.yaml)
 (`location=home` selector + the `edge` toleration).
+
+### If the tailnet is down when kube-cp-01 boots
+
+`flannel-iface: tailscale0` means k3s waits (up to 90 s, systemd `ExecStartPre`)
+for `tailscale0` before starting. A genuine Tailscale outage at boot leaves k3s
+`failed` after the retry budget (`10-startlimit.conf`). Running pods (Traefik
+included) keep serving through it. Recover with:
+
+```bash
+sudo systemctl restart tailscaled
+sudo systemctl reset-failed k3s && sudo systemctl start k3s
+```
 
 ---
 

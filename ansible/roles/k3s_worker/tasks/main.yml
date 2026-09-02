@@ -96,19 +96,54 @@
     group: root
     mode: "0755"
 
-- name: Order k3s-agent after tailscaled (flannel-iface = tailscale0 must exist at start)
+- name: Gate k3s-agent on the tailscale0 interface (flannel-iface rides it)
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s-agent.service.d/20-tailscale.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      # Managed by Ansible - roles/k3s_worker
+      # Managed by Ansible - roles/k3s_worker. flannel-iface = tailscale0.
       [Unit]
       After=tailscaled.service
       Wants=tailscaled.service
+      [Service]
+      ExecStartPre=/bin/sh -c 'for i in $(seq 1 90); do ip -4 addr show tailscale0 2>/dev/null | grep -q "inet " && exit 0; sleep 1; done; echo "tailscale0 has no IPv4 after 90s" >&2; exit 1'
   when: k3s_flannel_iface == "tailscale0"
   notify: Restart k3s-agent
+
+# The kubelet client cert is issued for `system:node:<name>`. If the agent first
+# registered under the wrong name (fresh Pi hostname, e.g. "pi4"), a node-name
+# change alone is rejected by the Node authorizer - the local state has to go so
+# it bootstraps a fresh cert.
+- name: Is this host registered under its inventory name?
+  ansible.builtin.command: "k3s kubectl get node {{ inventory_hostname }}"
+  delegate_to: "{{ groups['k3s_cp'][0] }}"
+  become: true
+  register: k3s_worker_registered
+  changed_when: false
+  failed_when: false
+
+- name: Look for an already-bootstrapped local agent
+  ansible.builtin.stat:
+    path: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+  register: k3s_worker_agent_state
+
+- name: Reset stale agent state (registered under a different node name)
+  when:
+    - k3s_worker_agent_state.stat.exists
+    - k3s_worker_registered.rc != 0
+  block:
+    - name: Stop k3s-agent
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: stopped
+      failed_when: false
+
+    - name: Wipe /var/lib/rancher/k3s/agent (forces a clean re-register)
+      ansible.builtin.file:
+        path: /var/lib/rancher/k3s/agent
+        state: absent
 
 - name: Download the K3s install script
   ansible.builtin.get_url:
@@ -152,3 +187,54 @@
   retries: 30
   delay: 10
   changed_when: false
+
+- name: Drop stale node objects for this host (old name, same tailnet IP)
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      k3s kubectl get nodes -o json
+      | jq -r --arg me '{{ inventory_hostname }}' --arg ip '{{ node_ip }}'
+        '.items[] | select(.metadata.name != $me)
+         | select([.status.addresses[]?.address] | index($ip))
+         | .metadata.name'
+      | xargs -r k3s kubectl delete node --ignore-not-found
+  delegate_to: "{{ groups['k3s_cp'][0] }}"
+  become: true
+  register: k3s_worker_stale
+  changed_when: "'deleted' in k3s_worker_stale.stdout"
+
+- name: Give the login user a kubeconfig (API over the tailnet)
+  when:
+    - k3s_worker_user_kubeconfig | bool
+    - ansible_user != "root"
+  block:
+    - name: Read the kubeconfig from the control plane
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      delegate_to: "{{ groups['k3s_cp'][0] }}"
+      become: true
+      register: k3s_worker_cp_kubeconfig
+
+    - name: Look up the login user's home directory
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ ansible_user }}"
+
+    - name: Ensure ~/.kube exists for {{ ansible_user }}
+      ansible.builtin.file:
+        path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Install ~/.kube/config pointing at the CP's tailnet address
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.kube/config"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+        content: >-
+          {{ k3s_worker_cp_kubeconfig.content | b64decode
+             | replace('https://127.0.0.1:6443',
+                       'https://' ~ k3s_cp_tailscale_ip ~ ':' ~ k3s_api_port) }}

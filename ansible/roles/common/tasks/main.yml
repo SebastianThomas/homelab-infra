@@ -3,6 +3,20 @@
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
 
+- name: Look for cloud-init
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: common_cloud_init_dir
+
+- name: Stop cloud-init from resetting the hostname on reboot
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    content: "preserve_hostname: true\n"
+  when: common_cloud_init_dir.stat.exists
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true

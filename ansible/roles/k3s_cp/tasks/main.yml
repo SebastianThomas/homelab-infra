@@ -52,17 +52,21 @@
       StartLimitBurst=5
   notify: Restart k3s
 
-- name: Order k3s after tailscaled (flannel-iface = tailscale0 must exist at start)
+- name: Gate k3s on the tailscale0 interface (flannel-iface rides it)
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s.service.d/20-tailscale.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      # Managed by Ansible - roles/k3s_cp
+      # Managed by Ansible - roles/k3s_cp. flannel-iface = tailscale0, so k3s
+      # can't come up until tailscaled has the interface addressed. Wait up to
+      # 90s; the 10-startlimit drop-in then bounds the retries.
       [Unit]
       After=tailscaled.service
       Wants=tailscaled.service
+      [Service]
+      ExecStartPre=/bin/sh -c 'for i in $(seq 1 90); do ip -4 addr show tailscale0 2>/dev/null | grep -q "inet " && exit 0; sleep 1; done; echo "tailscale0 has no IPv4 after 90s" >&2; exit 1'
   when: k3s_flannel_iface == "tailscale0"
   notify: Restart k3s
 
