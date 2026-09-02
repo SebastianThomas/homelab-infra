@@ -83,12 +83,19 @@ runs:
           --timeout=120s
         then
           echo "::group::tailscale up failed - diagnostics"
-          curl -sS -o /dev/null -w 'headscale /health -> %{http_code} (%{remote_ip})\n' "$LOGIN_SERVER/health" || true
+          host=${LOGIN_SERVER#*://}; host=${host%%/*}
+          echo "-- does curl reach the SAME endpoint tailscaled times out on?"
+          curl -sS -m 10 -o /dev/null -w '  curl /health      -> %{http_code} in %{time_total}s via %{remote_ip}\n' "$LOGIN_SERVER/health" || echo "  curl /health FAILED"
+          curl -sS -m 10 -o /dev/null -w '  curl /key?v=142   -> %{http_code} in %{time_total}s via %{remote_ip}\n' "$LOGIN_SERVER/key?v=142" || echo "  curl /key FAILED"
+          echo "-- name resolution for $host"
+          getent ahosts "$host" || true
+          echo "-- sockets to :443"
+          ss -tan state all "( dport = :443 )" 2>&1 | head -10 || true
+          echo "-- tailscaled"
           ls -l /dev/net/tun 2>&1 || echo "NO /dev/net/tun"
-          systemctl --no-pager -l status tailscaled 2>&1 | head -20 || true
+          systemctl --no-pager -l status tailscaled 2>&1 | head -15 || true
           sudo tailscale status 2>&1 || true
-          sudo tailscale debug prefs 2>&1 | head -20 || true
-          sudo journalctl -u tailscaled --no-pager -n 100 || true
+          sudo journalctl -u tailscaled --no-pager -n 60 || true
           echo "::endgroup::"
           exit 1
         fi
