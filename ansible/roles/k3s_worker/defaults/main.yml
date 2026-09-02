@@ -1,7 +1,9 @@
 ---
-# API endpoint the agent joins through. With the VPN substrate enabled this is
-# the server's tailnet IP (k3s_cp_tailscale_ip); otherwise its public address.
-k3s_worker_server: >-
-  https://{{ k3s_cp_tailscale_ip
-  if (k3s_enable_vpn | bool and k3s_cp_tailscale_ip)
-  else hostvars[groups['k3s_cp'][0]].ansible_host }}:{{ k3s_api_port }}
+# Worker (k3s agent) defaults. Real values: group_vars/all/main.yml + the
+# per-host block in inventory/hosts.yml (node_ip, node_labels, node_taints,
+# tailscale_exit_node).
+#
+# The agent joins `https://{{ k3s_cp_tailscale_ip }}:{{ k3s_api_port }}` over
+# the tailnet (kube-cp-01's public :6443 is firewalled). Per-node resolv.conf
+# is left to the OS - override with `k3s_resolv_conf_manage: false` in the
+# host block if the node isn't the VPS.

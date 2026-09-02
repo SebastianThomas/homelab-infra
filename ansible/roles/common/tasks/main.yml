@@ -70,13 +70,18 @@
   failed_when: false          # built-in on some kernels, or loaded at boot; not fatal
   when: common_load_wireguard | bool
 
-# --- Tailscale (Phase 2 - only when the VPN substrate is enabled) -------
-- name: Set up Tailscale for the K3s VPN integration
-  when: k3s_enable_vpn | bool
+# --- Tailscale --------------------------------------------------------
+# Every node meshes over the tailnet (k3s_flannel_iface = tailscale0). Both the
+# package install and the `tailscale up` that joins Headscale are MANUAL,
+# one-time, per node (needs an interactive key + console/LAN access - see the
+# README "Adding a worker node"). Opt a host into Ansible managing the package
+# with `tailscale_manage_install: true`.
+- name: Ensure Tailscale is installed
+  when: tailscale_manage_install | default(false) | bool
   block:
     - name: Add the Tailscale apt signing key
       ansible.builtin.get_url:
-        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_facts.distribution_release }}.noarmor.gpg"
+        url: "https://pkgs.tailscale.com/stable/{{ ansible_facts.distribution | lower }}/{{ ansible_facts.distribution_release }}.noarmor.gpg"
         dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
         owner: root
         group: root
@@ -84,7 +89,7 @@
 
     - name: Add the Tailscale apt repository
       ansible.builtin.get_url:
-        url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_facts.distribution_release }}.tailscale-keyring.list"
+        url: "https://pkgs.tailscale.com/stable/{{ ansible_facts.distribution | lower }}/{{ ansible_facts.distribution_release }}.tailscale-keyring.list"
         dest: /etc/apt/sources.list.d/tailscale.list
         owner: root
         group: root
@@ -106,3 +111,34 @@
         name: tailscaled
         enabled: true
         state: started
+
+# --- Tailscale exit node (per host: tailscale_exit_node: true) ----------
+# Route tailnet clients' traffic out through this node. Needs the node already
+# on the tailnet. Route approval (headscale nodes approve-routes -r 0.0.0.0/0,::/0)
+# and client selection (tailscale set --exit-node=<node>) stay manual.
+- name: Tailscale exit node
+  when:
+    - tailscale_exit_node | default(false) | bool
+    - "'tailscale0' in ansible_interfaces"
+  block:
+    - name: Enable IP forwarding for the exit node
+      ansible.posix.sysctl:
+        name: "{{ item }}"
+        value: "1"
+        sysctl_file: /etc/sysctl.d/99-tailscale.conf
+        sysctl_set: true
+        reload: true
+      loop:
+        - net.ipv4.ip_forward
+        - net.ipv6.conf.all.forwarding
+
+    - name: Read current Tailscale prefs
+      ansible.builtin.command: tailscale debug prefs
+      register: common_ts_prefs
+      changed_when: false
+
+    - name: Advertise the exit node
+      ansible.builtin.command: tailscale set --advertise-exit-node
+      when: >-
+        '0.0.0.0/0' not in
+        ((common_ts_prefs.stdout | from_json).AdvertiseRoutes | default([]))

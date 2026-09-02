@@ -2,7 +2,8 @@
 # /etc/rancher/k3s/config.yaml - K3s agent. Manual edits are overwritten.
 
 token: "{{ vault_k3s_token }}"
-server: "{{ k3s_worker_server | trim }}"
+# Joined over the tailnet - kube-cp-01's public :6443 is firewalled.
+server: "https://{{ k3s_cp_tailscale_ip }}:{{ k3s_api_port }}"
 
 node-label:
 {% for label in node_labels | default([]) %}
@@ -15,11 +16,17 @@ node-taint:
   - "{{ taint }}"
 {% endfor %}
 {% endif %}
+{% if node_ip | default('') %}
+# The tailnet address, so the apiserver can reach this kubelet (logs / exec /
+# port-forward) - the node's real NIC is a private LAN / VPN address.
+node-ip: "{{ node_ip }}"
+{% endif %}
+{% if k3s_flannel_iface %}
+# Pod mesh over the tailnet - must match the server (endpoint = this node's
+# 100.64.x.x, MTU from tailscale0). A systemd drop-in orders k3s-agent After=
+# tailscaled so the interface exists at start.
+flannel-iface: "{{ k3s_flannel_iface }}"
+{% endif %}
 {% if k3s_resolv_conf_manage | bool %}
 resolv-conf: /etc/rancher/k3s/resolv.conf
-{% endif %}
-
-{% if k3s_enable_vpn | bool %}
-# Mesh over the Headscale tailnet (K3s built-in Tailscale integration).
-vpn-auth: "name=tailscale,joinKey={{ vault_tailscale_preauth_key }},controlServerURL={{ k3s_headscale_url }}"
 {% endif %}

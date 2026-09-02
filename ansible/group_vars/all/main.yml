@@ -58,32 +58,38 @@ common_disable_swap: true
 firewall_enabled: true
 
 # ===========================================================================
-# Phase 2 - Tailscale substrate for the Raspberry Pi worker.
+# Multi-node: pod mesh over the Headscale tailnet.
 #
-# Left OFF. The worker joins the K3s pod network over the Headscale tailnet
-# (K3s built-in `--vpn-auth` integration). Headscale must already be running in
-# the cluster before this is switched on. Procedure: see README "Adding
-# kube-worker-01".
+# kube-cp-01 has a public IP; a worker (the Pi at home) is behind NAT, so the
+# two can only reach each other over the tailnet. K3s flannel therefore runs on
+# the `tailscale0` interface on EVERY node - the VXLAN endpoints are the nodes'
+# 100.64.x.x addresses and the MTU is derived from tailscale0 (1280), which is
+# consistent cluster-wide.
+#
+# Each node runs a standalone `tailscaled` (kube-cp-01 already does) and must be
+# on the tailnet BEFORE its first `provision` run - `tailscale up` is a manual,
+# one-time step per node (it needs console/LAN access the runner doesn't have).
+# Full procedure: README "Adding a worker node".
 # ===========================================================================
-k3s_enable_vpn: false
 
-# Headscale control server the nodes' embedded Tailscale authenticates against.
+# flannel's host interface. "tailscale0" = mesh over the tailnet (needs every
+# node on it). "" = flannel picks the default route iface (single-node only).
+k3s_flannel_iface: "tailscale0"
+
+# Headscale control server the nodes' Tailscale authenticates against.
 k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
 
-# The VPS server's tailnet IP (100.64.x.x). Unknown until the server has joined
-# the tailnet once; fill it in, then re-run for the worker. Headscale allocates
-# sequentially, so the first node is usually 100.64.0.1.
-k3s_cp_tailscale_ip: ""
+# kube-cp-01's tailnet IP - the address workers set as their K3s `server:`
+# (https://<ip>:{{ k3s_api_port }}) and a SAN on the API cert.
+k3s_cp_tailscale_ip: "100.64.0.2"
 
-# Advertise kube-cp-01 as a Tailscale exit node (tailnet clients can route all
-# their internet traffic through the VPS). Enables IP forwarding and runs
-# `tailscale set --advertise-exit-node`. You still have to APPROVE the routes
-# in Headscale once:
+# Per-host (inventory): `tailscale_exit_node: true` advertises that node as a
+# Tailscale exit node (IP forwarding on + `tailscale set --advertise-exit-node`).
+# Approve the routes once in Headscale/Headplane:
 #   headscale nodes approve-routes -i <id> -r 0.0.0.0/0,::/0
-# and pick it on a client: `tailscale set --exit-node=kube-cp-01`.
-# Note: exit-node traffic all egresses from the VPS public IP and counts against
-# its bandwidth.
-k3s_cp_tailscale_exit_node: false
+# then pick it on a client: `tailscale set --exit-node=<node>`.
+# Exit traffic egresses from that node's own connection / counts against it.
 
-# vault_k3s_token            -> cluster join secret (always required)
-# vault_tailscale_preauth_key -> Headscale pre-auth key (only when k3s_enable_vpn)
+# vault_k3s_token -> cluster join secret (server + agents share it; always required).
+# The Headscale pre-auth key is used by hand in `tailscale up` on each node,
+# not by Ansible - see the README.

@@ -25,10 +25,10 @@ Hostname pattern `kube-<role>-<number>`.
 | Node | Machine | Role |
 |---|---|---|
 | `kube-cp-01` | Strato VPS — `homelab.sthomas.ch` → `h2977839.stratoserver.net` (`81.169.131.24`) | K3s **server**, SQLite datastore, runs everything |
-| `kube-worker-01` | Raspberry Pi at home (arm64) | K3s **agent**, optional, opt-in workloads (Phase 2) |
+| `kube-worker-01` | Raspberry Pi 4 (8 GB) at home, Ubuntu Server arm64, behind NAT | K3s **agent**, opt-in workloads only (tainted) |
 
-`kube-cp-01` is the whole cluster on its own. The Pi is added later over the
-Headscale tailnet (see [Adding kube-worker-01](#adding-kube-worker-01)).
+`kube-cp-01` is the whole cluster on its own. A worker joins the pod network
+over the Headscale tailnet — see [Adding a worker node](#adding-a-worker-node).
 
 Node labels/taints (set by Ansible via `--node-label` / `--node-taint`):
 `homelab.sthomas.ch/location=strato` on the VPS; `location=home` +
@@ -53,7 +53,7 @@ pipx install --include-deps ansible      # or: brew install ansible
 
 ## Assumptions about the hosts
 
-- Debian 12/13 (the Pi: 64-bit Raspberry Pi OS / Debian arm64), freshly
+- Debian 12/13 or Ubuntu Server 24.04 (the Pi: Ubuntu Server arm64), freshly
   installed, reachable over SSH, with a `sudo`-capable user.
 - The VPS has a mostly-static public IPv4 and its Strato hostname resolves to it.
 - `python3` present (default on Debian).
@@ -82,7 +82,6 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `K3S_TOKEN` | `openssl rand -hex 32` — the cluster join secret |
 | `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (exactly 32 chars; set after first deploy) |
 | `HEADPLANE_API_KEY` | `headscale apikeys create --expiration 8760h` output (set after first deploy) |
-| `TS_PREAUTH_KEY` | Headscale pre-auth key for the K3s node — `--reusable --expiration 100y` (**not** ephemeral) |
 | `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 100y` |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
 | `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
@@ -248,44 +247,82 @@ Ansible never deploys anything under `kubernetes/`.
 
 ## Private API access over Tailscale
 
-Put the VPS on the Headscale tailnet so `kubectl` (yours and CI's) reaches the
-API by its stable MagicDNS name instead of the public IP — and you can then
-firewall off public `:6443`.
+`kube-cp-01` runs a standalone `tailscaled` on the Headscale tailnet
+(`100.64.0.2`), so `kubectl` — yours and CI's — reaches the API by its MagicDNS
+name and public `:6443` is firewalled off:
 
-1. **Pre-auth key** for the VPS
-   ([how](kubernetes/infrastructure/headscale/README.md#creating-a-pre-auth-key)):
-   `--reusable --expiration 100y`. Put it in the Ansible vault as
-   `vault_tailscale_preauth_key` and in the `TS_PREAUTH_KEY` GitHub secret.
-2. Set `k3s_enable_vpn: true` in `ansible/group_vars/all/main.yml`, run
-   **`provision`** (`limit: k3s_cp`). K3s installs Tailscale, joins the tailnet
-   via `--vpn-auth`, and adds `kube-cp-01.ts.homelab.sthomas.ch` to the API cert.
-3. **CI key**: a second pre-auth key, `--reusable --ephemeral --expiration 100y`
-   → `TS_AUTHKEY` GitHub secret. Now every `deploy`/`provision` runner joins the
-   tailnet automatically (via `.github/actions/setup-ssh`).
-4. Flip the endpoint secrets to the MagicDNS name:
-   - `SSH_HOST` → `kube-cp-01.ts.homelab.sthomas.ch`
-   - `KUBE_API` → `https://kube-cp-01.ts.homelab.sthomas.ch:6443`
-   Your laptop: `tailscale switch` to the homelab profile, then re-fetch the
-   kubeconfig with that host (see [Using the cluster](#using-the-cluster)).
-5. **Close public `:6443`** — the `firewall` role does this by default now:
-   `firewall_absent_rules` deletes the public `6443` rule and
-   `firewall_tailnet_iface: tailscale0` trusts the whole tailnet interface (so
-   the API, SSH-over-tailnet, etc. all work from the tailnet). Just run
-   `provision` (`limit: k3s_cp`). `:22`/`:80`/`:443` stay public. Emergency
-   access if the tailnet ever breaks: `ssh sebas@homelab.sthomas.ch` then
-   `sudo kubectl …`, or re-open with `sudo ufw allow 6443/tcp`.
+- API cert carries `kube-cp-01.ts.homelab.sthomas.ch` + `100.64.0.2` (Ansible,
+  from `k3s_cp_tailscale_ip`).
+- `KUBE_API` / `SSH_HOST` secrets point at the MagicDNS name; CI runners join
+  the tailnet per-run with a `--reusable --ephemeral` Headscale key (`TS_AUTHKEY`).
+- The `firewall` role deletes the public `:6443` rule and trusts `tailscale0`
+  wholesale. `:22`/`:80`/`:443` stay public. Emergency access if the tailnet
+  breaks: `ssh <user>@homelab.sthomas.ch` → `sudo kubectl …`, or
+  `sudo ufw allow 6443/tcp`.
 
-## Adding kube-worker-01
+## Adding a worker node
 
-The Pi joins the K3s pod network over the same tailnet. Do this after "Private
-API access" above (the VPS is already on the tailnet then).
+A worker's pod traffic rides the tailnet (flannel on `tailscale0`), so the node
+must be on the tailnet *before* Ansible touches it. `kube-worker-01` (the Pi) is
+already in the inventory — for another node, copy that block.
 
-1. Read the VPS tailnet IP (`ssh … tailscale ip -4`, or `headscale nodes list`)
-   into `k3s_cp_tailscale_ip` in `group_vars/all/main.yml`; run `provision`
-   `limit: k3s_cp` (adds it to the cert + `node-external-ip`).
-2. Uncomment `kube-worker-01` in `ansible/inventory/hosts.yml`, set its
-   `ansible_host` to its tailnet name, run `provision`.
-3. In Headplane, approve the Pi node and its `10.42.x.0/24` pod route.
+**On the node** (console / LAN — Ansible can't reach it yet):
+
+```bash
+# 1. hostname = inventory name, BEFORE tailscale registers it
+sudo hostnamectl set-hostname kube-worker-01
+
+# 2. the ops user Ansible logs in as (name = your ANSIBLE_SSH_USER secret)
+sudo adduser --disabled-password --gecos "" <user>
+sudo usermod -aG sudo <user>
+echo '<user> ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/<user>
+sudo install -d -m700 -o <user> -g <user> /home/<user>/.ssh
+echo '<public key matching the SSH_PRIVATE_KEY secret>' | sudo tee /home/<user>/.ssh/authorized_keys
+sudo chown <user>:<user> /home/<user>/.ssh/authorized_keys && sudo chmod 600 "$_"
+
+# 3. join the tailnet (Headscale pre-auth key: `headscale preauthkeys create
+#    --user 1 --reusable --expiration 8760h`). --accept-dns=false keeps the
+#    node's own resolver; --advertise-exit-node because it's also an exit node.
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --login-server=https://headscale.homelab.sthomas.ch \
+  --authkey=<key> --hostname=kube-worker-01 \
+  --accept-dns=false --advertise-exit-node
+tailscale ip -4      # note this - it goes in the inventory
+```
+
+**In Headplane / on kube-cp-01:**
+
+```bash
+# approve the node, and its exit-node routes
+sudo k3s kubectl -n headscale exec deploy/headscale -- headscale nodes list
+sudo k3s kubectl -n headscale exec deploy/headscale -- \
+  headscale nodes approve-routes -i <id> -r 0.0.0.0/0,::/0
+```
+
+**Then, as code:**
+
+1. Put the node's tailnet IP in its inventory block (`node_ip:`), commit.
+2. Run **`provision` `limit: k3s_cp`** first — adds `flannel-iface: tailscale0`
+   to the server and restarts k3s (~1 min; running pods and Traefik keep
+   serving). Take a `/var/lib/rancher/k3s` backup first (see [Backups](#backups)).
+3. Run **`provision` `limit: kube-worker-01`** — installs the agent, joins over
+   `https://100.64.0.2:6443`.
+4. Approve the node's pod-CIDR route (`10.42.<n>.0/24`) the same way as the
+   exit-node routes above, so pods on other nodes can reach it.
+5. Verify: `kubectl get nodes -o wide` (worker `Ready`), then a tolerating test
+   pod:
+
+   ```bash
+   kubectl run pi-test --image=busybox --restart=Never --rm -it \
+     --overrides='{"spec":{"nodeSelector":{"homelab.sthomas.ch/location":"home"},
+     "tolerations":[{"key":"homelab.sthomas.ch/edge","operator":"Exists"}]}}' \
+     -- sh -c 'nslookup kubernetes.default && wget -qO- -T5 https://kubernetes.default/healthz --no-check-certificate'
+   ```
+
+**Scheduling onto it:** nothing lands on the Pi unless it opts in. A namespace
+does that with the annotations in
+[`kubernetes/apps/_template/namespace.yaml`](kubernetes/apps/_template/namespace.yaml)
+(`location=home` selector + the `edge` toleration).
 
 ---
 

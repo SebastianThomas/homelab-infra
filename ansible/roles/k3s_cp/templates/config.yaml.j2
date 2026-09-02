@@ -22,12 +22,10 @@ tls-san:
 {% for san in extra_tls_san | default([]) %}
   - "{{ san }}"
 {% endfor %}
-{% if k3s_enable_vpn | bool %}
-  # MagicDNS name - stable, lets clients/CI reach the API over the tailnet.
-  - "{{ inventory_hostname }}.ts.{{ cluster_domain }}"
 {% if k3s_cp_tailscale_ip %}
+  # Tailnet: MagicDNS name + IP so clients/CI/agents reach the API over the tailnet.
+  - "{{ inventory_hostname }}.ts.{{ cluster_domain }}"
   - "{{ k3s_cp_tailscale_ip }}"
-{% endif %}
 {% endif %}
 
 kubelet-arg:
@@ -43,12 +41,11 @@ resolv-conf: /etc/rancher/k3s/resolv.conf
 kube-apiserver-arg:
   - "enable-admission-plugins=PodNodeSelector,PodTolerationRestriction"
 {% endif %}
-{% if k3s_enable_vpn | bool %}
+{% if k3s_flannel_iface %}
 
-# Phase 2: nodes mesh over the Headscale tailnet via K3s's built-in Tailscale
-# integration. Headscale must already be running in the cluster.
-vpn-auth: "name=tailscale,joinKey={{ vault_tailscale_preauth_key }},controlServerURL={{ k3s_headscale_url }}"
-{% if k3s_cp_tailscale_ip %}
-node-external-ip: "{{ k3s_cp_tailscale_ip }}"
-{% endif %}
+# Pod mesh over the tailnet: flannel's VXLAN rides the tailscale0 interface
+# (endpoint = this node's 100.64.x.x, MTU from tailscale0). Needs a standalone
+# tailscaled up before k3s starts - a systemd drop-in orders k3s After= it.
+# InternalIP stays the public address, so klipper / public ingress are untouched.
+flannel-iface: "{{ k3s_flannel_iface }}"
 {% endif %}

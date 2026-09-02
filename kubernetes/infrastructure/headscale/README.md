@@ -74,7 +74,7 @@ expires. The key only needs to be valid at registration time.
 |---|---|
 | **A device you register once** (your laptop, the VPS on the tailnet) | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
 | **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 100y` |
-| **The K3s worker** (`TS_PREAUTH_KEY`, Phase 2) — K3s re-reads it on every start | `hs preauthkeys create --user <ID> --reusable --expiration 100y` |
+| **A K3s worker node** — registered once by hand (`tailscale up`), then persists | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` |
 
 `--ephemeral` = the node is removed from headscale as soon as it disconnects
 (the CI action runs `tailscale logout` on exit), so runner nodes never pile up.
@@ -156,8 +156,8 @@ sudo /opt/homebrew/bin/tailscaled --tun=userspace-networking --socket=/tmp/ts-ho
 Reach homelab-tailnet hosts through the proxy
 (`ALL_PROXY=socks5://localhost:1055 …`); stop it with `sudo pkill -f ts-homelab.sock`.
 
-> The Raspberry Pi is **not** connected by either method — K3s's `--vpn-auth`
-> joins it automatically in Phase 2 using `TS_PREAUTH_KEY`.
+> A K3s worker node (the Pi) joins with a standalone `tailscale up` run once by
+> hand on the node — see the main README "Adding a worker node".
 
 > **"invalid pre auth key" checklist:** `tailscale debug prefs | grep -i
 > controlurl` must show *your* Headscale URL (if not, `--login-server` didn't

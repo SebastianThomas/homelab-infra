@@ -1,14 +1,24 @@
 ---
-- name: Fail early if the VPN substrate is not enabled
+- name: Require the node to be on the tailnet already
   ansible.builtin.assert:
     that:
-      - k3s_enable_vpn | bool
+      - "'tailscale0' in ansible_interfaces"
       - k3s_cp_tailscale_ip | length > 0
     fail_msg: >-
-      kube-worker-01 joins over the Headscale tailnet. Set k3s_enable_vpn: true,
-      set k3s_cp_tailscale_ip to the server's tailnet IP, and provide
-      vault_tailscale_preauth_key. See README "Adding kube-worker-01".
-    success_msg: "VPN substrate configured - proceeding with the agent install."
+      This node joins over the Headscale tailnet but has no tailscale0 interface.
+      Run `tailscale up --login-server={{ k3s_headscale_url }} --authkey=<key>`
+      on it first (one-time, manual). See README "Adding a worker node".
+    success_msg: "On the tailnet - proceeding with the agent install."
+
+- name: Require node_ip (this node's tailnet address) to be set in the inventory
+  ansible.builtin.assert:
+    that:
+      - node_ip | default('') | length > 0
+    fail_msg: >-
+      Set `node_ip:` for {{ inventory_hostname }} in inventory/hosts.yml to its
+      tailnet IP (`tailscale ip -4` on the node) so the apiserver can reach the
+      kubelet for `kubectl logs` / `exec`.
+    success_msg: "node_ip = {{ node_ip }}"
 
 - name: Create the K3s config directory
   ansible.builtin.file:
@@ -39,6 +49,28 @@
     owner: root
     group: root
     mode: "0600"
+  notify: Restart k3s-agent
+
+- name: Create the k3s-agent systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s-agent.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Order k3s-agent after tailscaled (flannel-iface = tailscale0 must exist at start)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s-agent.service.d/20-tailscale.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/k3s_worker
+      [Unit]
+      After=tailscaled.service
+      Wants=tailscaled.service
+  when: k3s_flannel_iface == "tailscale0"
   notify: Restart k3s-agent
 
 - name: Download the K3s install script

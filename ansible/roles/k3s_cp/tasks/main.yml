@@ -52,6 +52,27 @@
       StartLimitBurst=5
   notify: Restart k3s
 
+- name: Order k3s after tailscaled (flannel-iface = tailscale0 must exist at start)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s.service.d/20-tailscale.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/k3s_cp
+      [Unit]
+      After=tailscaled.service
+      Wants=tailscaled.service
+  when: k3s_flannel_iface == "tailscale0"
+  notify: Restart k3s
+
+- name: Remove the tailscale ordering drop-in when the mesh is off
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d/20-tailscale.conf
+    state: absent
+  when: k3s_flannel_iface != "tailscale0"
+  notify: Restart k3s
+
 - name: Download the K3s install script
   ansible.builtin.get_url:
     url: "{{ k3s_install_script_url }}"
@@ -120,35 +141,6 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0600"
-
-- name: Tailscale exit node
-  # kube-cp-01 routes tailnet clients' internet traffic. tailscaled is already
-  # installed + running (role: common); this only flips the exit-node pref and
-  # IP forwarding. Route approval + client selection are manual (see
-  # group_vars/all/main.yml).
-  when: k3s_cp_tailscale_exit_node | bool
-  block:
-    - name: Enable IP forwarding for the exit node
-      ansible.posix.sysctl:
-        name: "{{ item }}"
-        value: "1"
-        sysctl_file: /etc/sysctl.d/99-tailscale.conf
-        sysctl_set: true
-        reload: true
-      loop:
-        - net.ipv4.ip_forward
-        - net.ipv6.conf.all.forwarding
-
-    - name: Read current Tailscale prefs
-      ansible.builtin.command: tailscale debug prefs
-      register: k3s_cp_ts_prefs
-      changed_when: false
-
-    - name: Advertise the exit node
-      ansible.builtin.command: tailscale set --advertise-exit-node
-      when: >-
-        '0.0.0.0/0' not in
-        ((k3s_cp_ts_prefs.stdout | from_json).AdvertiseRoutes | default([]))
 
 - name: Fetch the kubeconfig back to the Ansible controller
   when: k3s_cp_fetch_kubeconfig | bool
