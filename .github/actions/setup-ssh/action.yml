@@ -14,9 +14,9 @@ inputs:
     default: ""
   tailscale-authkey:
     description: >
-      Headscale pre-auth key for the runner - create it reusable + ephemeral
-      with a long expiry:
-        headscale preauthkeys create --user <id> --reusable --ephemeral --expiration 100y
+      Headscale pre-auth key for the runner - reusable + ephemeral, modest expiry:
+        headscale preauthkeys create --user <id> --reusable --ephemeral --expiration 8760h
+      (not 100y - a headscale upgrade can reject far-future keys.)
       Empty = skip the tailnet (public SSH / public API).
     required: false
     default: ""
@@ -75,12 +75,23 @@ runs:
         for _ in $(seq 1 20); do [ -S /run/tailscale/tailscaled.sock ] && break; sleep 0.5; done
 
         # --operator so later `tailscale` CLI calls don't need sudo
-        sudo tailscale up \
+        if ! sudo tailscale up \
           --login-server="$LOGIN_SERVER" \
           --authkey="$TS_AUTHKEY" \
           --hostname="$TS_HOSTNAME" \
           --operator="${USER:-runner}" \
           --timeout=120s
+        then
+          echo "::group::tailscale up failed - diagnostics"
+          curl -sS -o /dev/null -w 'headscale /health -> %{http_code} (%{remote_ip})\n' "$LOGIN_SERVER/health" || true
+          ls -l /dev/net/tun 2>&1 || echo "NO /dev/net/tun"
+          systemctl --no-pager -l status tailscaled 2>&1 | head -20 || true
+          sudo tailscale status 2>&1 || true
+          sudo tailscale debug prefs 2>&1 | head -20 || true
+          sudo journalctl -u tailscaled --no-pager -n 100 || true
+          echo "::endgroup::"
+          exit 1
+        fi
 
         [ -n "$PING_TARGET" ] || exit 0
         echo "Waiting for $PING_TARGET over the tailnet..."
