@@ -290,13 +290,16 @@ sudo tailscale up --login-server=https://headscale.homelab.sthomas.ch \
 tailscale ip -4      # note this - it goes in the inventory
 ```
 
-**In Headplane / on kube-cp-01:**
+**On kube-cp-01** — approve the node's advertised routes (`--advertise-exit-node`
+= `0.0.0.0/0,::/0`). The pod CIDR needs *no* route: flannel's VXLAN is wrapped in
+node-to-node tailnet traffic, which tailscale already carries.
 
 ```bash
-# approve the node, and its exit-node routes
 sudo k3s kubectl -n headscale exec deploy/headscale -- headscale nodes list
 sudo k3s kubectl -n headscale exec deploy/headscale -- \
   headscale nodes approve-routes -i <id> -r 0.0.0.0/0,::/0
+# also expire the pre-auth key now it has registered (it's reusable):
+sudo k3s kubectl -n headscale exec deploy/headscale -- headscale preauthkeys expire -i <key-id>
 ```
 
 **Then, as code:**
@@ -305,11 +308,9 @@ sudo k3s kubectl -n headscale exec deploy/headscale -- \
 2. Run **`provision` `limit: k3s_cp`** first — adds `flannel-iface: tailscale0`
    to the server and restarts k3s (~1 min; running pods and Traefik keep
    serving). Take a `/var/lib/rancher/k3s` backup first (see [Backups](#backups)).
-3. Run **`provision` `limit: kube-worker-01`** — installs the agent, joins over
-   `https://100.64.0.2:6443`.
-4. Approve the node's pod-CIDR route (`10.42.<n>.0/24`) the same way as the
-   exit-node routes above, so pods on other nodes can reach it.
-5. Verify: `kubectl get nodes -o wide` (worker `Ready`), then a tolerating test
+3. Run **`provision` `limit: kube-worker-01`** — installs the agent (joins over
+   `https://100.64.0.2:6443`), sets IP forwarding + the UDP-GRO tuning.
+4. Verify: `kubectl get nodes -o wide` (worker `Ready`), then a tolerating test
    pod:
 
    ```bash
