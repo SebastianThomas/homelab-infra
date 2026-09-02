@@ -75,5 +75,15 @@ k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
 # sequentially, so the first node is usually 100.64.0.1.
 k3s_cp_tailscale_ip: ""
 
+# Advertise kube-cp-01 as a Tailscale exit node (tailnet clients can route all
+# their internet traffic through the VPS). Enables IP forwarding and runs
+# `tailscale set --advertise-exit-node`. You still have to APPROVE the routes
+# in Headscale once:
+#   headscale nodes approve-routes -i <id> -r 0.0.0.0/0,::/0
+# and pick it on a client: `tailscale set --exit-node=kube-cp-01`.
+# Note: exit-node traffic all egresses from the VPS public IP and counts against
+# its bandwidth.
+k3s_cp_tailscale_exit_node: false
+
 # vault_k3s_token            -> cluster join secret (always required)
 # vault_tailscale_preauth_key -> Headscale pre-auth key (only when k3s_enable_vpn)
