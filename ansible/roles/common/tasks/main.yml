@@ -233,36 +233,19 @@
         '0.0.0.0/0' not in
         ((common_ts_prefs.stdout | from_json).AdvertiseRoutes | default([]))
 
-    # https://tailscale.com/s/ethtool-config-udp-gro - lifts the UDP-forwarding
-    # throughput cap for exit-node traffic. Not required for correctness.
-    - name: Install ethtool
-      ansible.builtin.apt:
-        name: ethtool
-        state: present
-
-    - name: UDP GRO forwarding tuning unit
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/tailscale-udp-gro.service
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          # Managed by Ansible - roles/common
-          [Unit]
-          Description=Tune UDP GRO forwarding for the Tailscale exit node
-          After=network-online.target
-          Wants=network-online.target
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/sbin/ethtool -K {{ ansible_facts.default_ipv4.interface }} rx-udp-gro-forwarding on rx-gro-list off
-          [Install]
-          WantedBy=multi-user.target
-      register: common_udp_gro_unit
-
-    - name: Enable + run the UDP GRO tuning
+    # NO `ethtool -K <nic> rx-udp-gro-forwarding on`. Tailscale suggests it for
+    # exit-node throughput, but on the VPS's virtio NIC it corrupts *forwarded*
+    # traffic - external clients could reach the host (SSH, tiny GETs) but not
+    # anything routed on to a pod (headscale /key, app ingress). Undo any
+    # earlier attempt.
+    - name: Remove the UDP-GRO tuning unit if it was ever installed
       ansible.builtin.systemd:
         name: tailscale-udp-gro.service
-        enabled: true
-        state: started
-        daemon_reload: "{{ common_udp_gro_unit is changed }}"
-      failed_when: false      # virtio NICs (the VPS) may not support the offload
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Delete the UDP-GRO tuning unit file
+      ansible.builtin.file:
+        path: /etc/systemd/system/tailscale-udp-gro.service
+        state: absent
