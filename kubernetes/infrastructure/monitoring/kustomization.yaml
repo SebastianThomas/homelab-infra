@@ -12,3 +12,17 @@ resources:
   - helmchart-victoria-metrics.yaml
   - helmchart-victoria-logs-collector.yaml
   - httproute.yaml
+  - vmscrape-cloudnative-pg.yaml
+  - vmrule-cloudnative-pg.yaml
+
+# Dashboards the chart does not ship. The Grafana sidecar loads any ConfigMap in
+# this namespace labelled grafana_dashboard=1; the name must stay stable, hence
+# no hash suffix. Re-vendor with dashboards/vendor.sh.
+configMapGenerator:
+  - name: grafana-dashboard-cloudnative-pg
+    files:
+      - dashboards/cloudnative-pg.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
