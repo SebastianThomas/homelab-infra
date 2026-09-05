@@ -1,6 +1,7 @@
 name: provision
 run-name: >-
-  Provision: ${{ github.event.head_commit.message || format('{0} @ {1}', github.actor, github.ref_name) }}${{ inputs.limit && format(' [limit: {0}]', inputs.limit) || '' }}${{ inputs.check && ' [dry-run]' || '' }} · production
+  Provision: ${{ inputs.limit && format(' [limit: {0}]', inputs.limit) || '' }}${{ inputs.check && ' [dry-run]' || '' }} · production
+# Provision: ${{ github.event.head_commit.message || format('{0} @ {1}', github.actor, github.ref_name) }}${{ inputs.limit && format(' [limit: {0}]', inputs.limit) || '' }}${{ inputs.check && ' [dry-run]' || '' }} · production
 
 # Runs Ansible against the hosts (base OS + K3s). Manual only - infra changes
 # should be deliberate.

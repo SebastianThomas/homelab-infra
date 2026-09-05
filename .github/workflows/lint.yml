@@ -1,6 +1,7 @@
 name: lint
 run-name: >-
-  Lint: ${{ github.event.head_commit.message || github.head_ref || github.ref_name }}
+  Lint: ${{ github.head_ref || github.ref_name }}
+# Lint: ${{ github.event.head_commit.message || github.head_ref || github.ref_name }}
 
 # PRs only. On push to main, `deploy` / `provision` run the same lint action as
 # a gate before applying anything (see .github/actions/lint).

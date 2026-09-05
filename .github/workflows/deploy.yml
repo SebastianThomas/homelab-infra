@@ -1,6 +1,7 @@
 name: deploy
 run-name: >-
-  Deploy: ${{ github.event.head_commit.message || format('{0} @ {1}', github.actor, github.ref_name) }} · production
+  Deploy: ${{ github.actor }} @ ${{ github.ref_name }} · production
+# Deploy: ${{ steps.commit.outputs.title || format('{0} @ {1}', github.actor, github.ref_name) }} · production
 
 # Applies kubernetes/ to the cluster (ordered, idempotent). Runs on push to
 # main for kubernetes/** and on demand.
@@ -18,6 +19,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  commit-msg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get commit title
+        id: commit
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: echo "title=${COMMIT_MESSAGE%%$'\n'*}" >> "$GITHUB_OUTPUT"
+
   lint:
     runs-on: ubuntu-latest
     steps:
