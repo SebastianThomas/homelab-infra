@@ -15,6 +15,7 @@ resources:
   - helmchart-victoria-logs-collector.yaml
   - tailnet-certificate.yaml
   - tailnet-ingress.yaml
+  - vmscrape-annotation-discovery.yaml
   - vmscrape-cloudnative-pg.yaml
   - vmrule-cloudnative-pg.yaml
 
