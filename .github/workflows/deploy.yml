@@ -89,6 +89,23 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure the Grafana tailnet auth key
+        # The grafana-tailnet pod registers with Headscale as the node
+        # `grafana` - that is the ONLY way into Grafana (no public route).
+        # Only read at first registration; after that the node key on the
+        # state PVC reconnects, so rotating this does not disturb a running node.
+        env:
+          TS_AUTHKEY_GRAFANA: ${{ secrets.TS_AUTHKEY_GRAFANA }}
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${TS_AUTHKEY_GRAFANA}" ]; then
+            kubectl -n monitoring create secret generic grafana-tailnet-authkey \
+              --from-literal=authkey="${TS_AUTHKEY_GRAFANA}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          else
+            echo "::warning::TS_AUTHKEY_GRAFANA not set - grafana-tailnet cannot join the tailnet and Grafana stays unreachable. See kubernetes/infrastructure/monitoring/README.md"
+          fi
+
       - name: Ensure the acme-dns secret
         # Full combined JSON: { "<zone>": {username,password,fulldomain,subdomain,allowfrom}, ... }
         # cert-manager reads it for DNS-01 (see infrastructure/cert-manager/cluster-issuer.yaml).

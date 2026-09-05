@@ -74,7 +74,8 @@ kubectl -n myapp get httproute myapp \
 
 **Nothing per app.** The `websecure` listener serves one cert-manager
 **wildcard** cert (`gateway-tls`: `sthomas.ch`, `*.sthomas.ch`,
-`*.homelab.sthomas.ch`, `*.ts.homelab.sthomas.ch`), issued via **DNS-01 /
+`*.homelab.sthomas.ch`, plus a `*.<zone>` line per app that needs a two-label
+name — the current list is in `gateway-certs.yaml`), issued via **DNS-01 /
 acme-dns**. Any new `HTTPRoute` hostname under a covered zone is already valid —
 no cert edit, no listener change.
 
@@ -88,24 +89,32 @@ no cert edit, no listener change.
   [`../kubernetes/infrastructure/cert-manager/`](../kubernetes/infrastructure/cert-manager/).
 - A future app that needs a **two-label** subdomain (`x.y.sthomas.ch`) needs a
   `*.y.sthomas.ch` line in `gateway-certs.yaml` + one acme-dns delegation for
-  `_acme-challenge.y.sthomas.ch`. One-label names never need anything.
-  `*.ts.homelab.sthomas.ch` (tailnet-only names, below) is such a case and is
-  already on the cert. Delegate first, then deploy the cert change: a name-list
-  change re-orders the whole cert, and a failing order leaves the last good one
-  serving but not renewing.
+  `_acme-challenge.y.sthomas.ch`. One-label names never need anything. Delegate
+  first, then deploy the cert change: a name-list change re-orders the whole
+  cert, and a failing order leaves the last good one serving but not renewing.
+- Tailnet-only names are **not** on this cert — they are served off the public
+  edge entirely (below).
 
-## Tailnet-only routes
+## Tailnet-only services
 
-A route can be hidden from the internet by giving it a hostname that only exists
-in the tailnet: a name under headscale's MagicDNS base domain
-`ts.homelab.sthomas.ch`, backed by a static A record in
-[`../kubernetes/infrastructure/headscale/files/extra-records.json`](../kubernetes/infrastructure/headscale/files/extra-records.json)
-pointing at the node's tailnet IP (`100.64.0.2`). Grafana is the example:
-`grafana.ts.homelab.sthomas.ch`. The `HTTPRoute` is otherwise completely
-ordinary — same Gateway, same listener, same wildcard cert.
+Some things should not be on the public edge at all — Grafana is the first.
+**They do not get an `HTTPRoute`.** The workload's pod runs a `tailscale`
+container and joins the tailnet as its own node, so MagicDNS
+(`<name>.ts.homelab.sthomas.ch`) resolves to *that pod's* `100.64.0.0/10`
+address and the only way in is a WireGuard session. Nothing is published on
+:80/:443, and the pod terminates its own TLS (its own cert-manager cert for
+`*.ts.homelab.sthomas.ch`, not `gateway-tls`). Worked example:
+[`../kubernetes/infrastructure/monitoring/tailnet-ingress.yaml`](../kubernetes/infrastructure/monitoring/tailnet-ingress.yaml).
 
-The hiding is **host-based**: Traefik still terminates :443 on the public IP and
-would serve the route to anyone who sends that `Host` header. Source-IP
-filtering is not an option — K3s's klipper SNATs every client to the node CNI
-address, so Traefik sees one IP for tailnet and public traffic alike. Use it to
-keep a service off public DNS and out of scanners, not as the only auth.
+Three Traefik-side approaches look easier and all of them fail:
+
+| Approach | Why it fails |
+|---|---|
+| An `HTTPRoute` on a tailnet-only hostname | Obscurity only. Traefik terminates :443 on the public IP and matches on `Host`; anyone who knows the name reaches it. The name is not even secret — Let's Encrypt publishes every issued name to the CT logs. |
+| A source-IP allowlist (`ipAllowList` middleware) | Traefik cannot tell the two apart. K3s's klipper (ServiceLB) SNATs every client to the node CNI address before the request reaches Traefik, so tailnet and public traffic share one source IP. |
+| A listener bound to the node's tailnet IP | Two independent blockers: the Traefik chart threads `ports.*.hostIP` into the entrypoint's **bind** address (Traefik would listen on the pod's loopback and nothing reaches it), and a `hostPort` on `100.64.0.2:443` is unschedulable anyway — klipper's svclb holds `0.0.0.0:443`, which the scheduler treats as conflicting with every IP on that port. |
+
+The node's own tailnet IP is not a way out of this: klipper's DNAT for `:443`
+matches on port regardless of destination address, so even a host process bound
+to `100.64.0.2:443` never sees the packets. A separate tailnet IP — one per
+workload — is what makes the split real.

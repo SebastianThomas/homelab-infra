@@ -113,6 +113,7 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 8760h` (not `100y` — a headscale upgrade can reject those). Same value in every app repo. |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
 | `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
+| `TS_AUTHKEY_GRAFANA` | Headscale pre-auth key for the Grafana tailnet node, issued for the **`services`** user — `--reusable --expiration 8760h` (**not** `--ephemeral`). Without it Grafana has no way in at all. |
 | `ACME_DNS_JSON` | acme-dns accounts for the DNS-01 wildcard cert — one combined JSON `{ "<zone>": {username,password,fulldomain,subdomain,allowfrom}, … }`. `deploy` writes it to Secret `cert-manager/acme-dns`. See [DNS](#2-dns). |
 
 > GitHub masks secret values in workflow logs, so `SSH_HOST` / `KUBE_API` etc.
@@ -133,10 +134,12 @@ No wildcard support at your DNS host? Add a CNAME per name instead
 
 `ts.homelab.sthomas.ch` (the MagicDNS base domain) needs **no** record — it is
 answered inside the tailnet only. Tailnet-only services live there: **Grafana is
-`grafana.ts.homelab.sthomas.ch`**, a static A record in headscale's
-[`extra-records.json`](kubernetes/infrastructure/headscale/files/extra-records.json)
-→ `100.64.0.2`, unreachable and unresolvable off the tailnet. Its
-`_acme-challenge` name *is* delegated, though — see below.
+`grafana.ts.homelab.sthomas.ch`**, and that name is not a DNS record at all —
+it is a *Tailscale node*. The `grafana-tailnet` pod joins the tailnet as the
+node `grafana`, so MagicDNS answers with the pod's own `100.64.0.0/10` address
+and the only route to it is a WireGuard session. Traefik has no route for
+Grafana, and no port on the VPS leads there. Its `_acme-challenge` name *is*
+delegated, though — see below.
 
 **TLS delegation.** Traefik serves one cert-manager DNS-01 *wildcard* cert. If
 your DNS host has no ACME API (wint.global, Strato, …), CNAME-delegate the
@@ -149,19 +152,30 @@ challenge names to [acme-dns](https://github.com/joohoi/acme-dns):
 2. At your DNS host: `_acme-challenge.sthomas.ch`,
    `_acme-challenge.homelab.sthomas.ch`,
    `_acme-challenge.ts.homelab.sthomas.ch`, … → the returned
-   `<uuid>.auth.acme-dns.io`. The `ts.` one covers the wildcard for the
-   tailnet-only MagicDNS names (Grafana); the *challenge* record is public even
-   though the names it certifies are not.
+   `<uuid>.auth.acme-dns.io`. The `ts.` one is for `*.ts.homelab.sthomas.ch`,
+   the cert the tailnet-only services serve themselves (Grafana today) — the
+   *challenge* record is public even though the names it certifies are not, and
+   so is the issued cert: Let's Encrypt publishes every name to the CT logs, so
+   treat a MagicDNS name as unlisted, never as secret.
 3. Combine the JSONs keyed by zone and store as the **`ACME_DNS_JSON`**
    Environment secret (the `deploy` workflow writes it to `cert-manager/acme-dns`):
    ```bash
-   jq -n '{ "sthomas.ch": input, "homelab.sthomas.ch": input, "ts.homelab.sthomas.ch": input }' \
-     ~/acmedns-sthomas.json ~/acmedns-homelab.json ~/acmedns-ts-homelab.json | pbcopy
+   jq -n '{ "sthomas.ch": input, "homelab.sthomas.ch": input }' ~/acmedns-sthomas.json ~/acmedns-homelab.json | pbcopy
    ```
-   Do this **before** deploying a change to `gateway-certs.yaml`: cert-manager
-   re-orders the whole wildcard cert whenever its name list changes, and an
-   undelegated zone makes that order fail (the last good cert keeps serving,
-   but stops renewing).
+   **Adding a zone later, without rebuilding the whole thing** (dropping a zone
+   here breaks issuance for every name that used it) — read the live secret,
+   merge, put it back:
+   ```bash
+   kubectl -n cert-manager get secret acme-dns -o jsonpath='{.data.acmedns\.json}' | base64 -d \
+     | jq --slurpfile new ~/acmedns-<zone>.json '. + {"<zone>": $new[0]}' > ~/acmedns-all.json
+   ```
+   Two zones may share one account (same object under both keys) — but only
+   while their combined challenge count stays ≤ 2.
+   Do this **before** deploying a `Certificate` that needs the new zone
+   (`gateway-certs.yaml` for public names, `monitoring/tailnet-certificate.yaml`
+   for the tailnet ones): cert-manager re-orders a cert whenever its name list
+   changes, and an undelegated zone makes that order fail (the last good cert
+   keeps serving, but stops renewing).
 
 See [`docs/gateway-api.md`](docs/gateway-api.md#tls) and
 `kubernetes/infrastructure/cert-manager/`.
@@ -224,9 +238,10 @@ and open `…/admin`.
 
 `deploy` brings up VictoriaMetrics + VictoriaLogs + Grafana (~40 dashboards, VM
 and VL datasources pre-wired) at **`https://grafana.ts.homelab.sthomas.ch` —
-tailnet only** (MagicDNS; there is no public record and no public route). Its
-HTTPRoute attaches to the shared Traefik Gateway, TLS is the wildcard cert
-(nothing per-app). Off the tailnet, `kubectl -n monitoring port-forward
+tailnet only, enforced**: the `grafana-tailnet` pod is a Tailscale node and
+terminates TLS itself, Grafana has no HTTPRoute, and nothing on the public IP
+answers for it. Needs `TS_AUTHKEY_GRAFANA` (above) on the first run. Off the
+tailnet, `kubectl -n monitoring port-forward
 svc/victoria-metrics-k8s-stack-grafana 3000:80`. Log in as `admin`:
 
 ```bash

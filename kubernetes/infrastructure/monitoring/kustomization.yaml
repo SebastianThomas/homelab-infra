@@ -4,14 +4,17 @@ kind: Kustomization
 namespace: monitoring
 
 # Two K3s HelmChart resources (metrics stack + log collector) installed by the
-# in-cluster helm-controller, plus the namespace and the Grafana route.
-# `grafana-admin.example.yaml` is NOT applied here - the Secret is created by
+# in-cluster helm-controller, plus the namespace and Grafana's tailnet front
+# door. There is deliberately NO HTTPRoute: Grafana is not published on the
+# public Traefik edge at all (see tailnet-ingress.yaml).
+# The `*.example.yaml` Secrets are NOT applied here - both are created by
 # bootstrap.sh / the deploy workflow. See README.md.
 resources:
   - namespace.yaml
   - helmchart-victoria-metrics.yaml
   - helmchart-victoria-logs-collector.yaml
-  - httproute.yaml
+  - tailnet-certificate.yaml
+  - tailnet-ingress.yaml
   - vmscrape-cloudnative-pg.yaml
   - vmrule-cloudnative-pg.yaml
 
@@ -26,3 +29,9 @@ configMapGenerator:
       disableNameSuffixHash: true
       labels:
         grafana_dashboard: "1"
+
+  # nginx.conf for the tailnet front door. Hash-suffixed on purpose - editing
+  # the file rolls grafana-tailnet.
+  - name: grafana-tailnet-nginx
+    files:
+      - default.conf=files/nginx-tailnet.conf

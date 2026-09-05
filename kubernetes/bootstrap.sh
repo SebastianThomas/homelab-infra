@@ -52,9 +52,21 @@ kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1 || \
   kubectl -n monitoring create secret generic grafana-admin \
     --from-literal=admin-user=admin \
     --from-literal=admin-password="$(openssl rand -base64 24)"
+# Grafana is reachable ONLY through the grafana-tailnet pod (its own Tailscale
+# node) - without a pre-auth key that pod cannot register and nothing can reach
+# Grafana. The deploy workflow writes this from TS_AUTHKEY_GRAFANA.
+if ! kubectl -n monitoring get secret grafana-tailnet-authkey >/dev/null 2>&1; then
+  echo "  ! Secret monitoring/grafana-tailnet-authkey is missing - the Grafana"
+  echo "    tailnet node cannot register, so Grafana will be unreachable."
+  echo "    See infrastructure/monitoring/README.md."
+fi
 # Installed via the in-cluster helm-controller (K3s HelmChart CRs) - async, so
 # no rollout wait here. Check: kubectl -n monitoring get helmchart,pods
 kubectl apply -k "${here}/infrastructure/monitoring"
+# `apply -k` never prunes, so removing a manifest from git does not remove the
+# object. Grafana's old public route has to go explicitly or Traefik keeps
+# serving it. Idempotent; delete these lines once every cluster has converged.
+kubectl -n monitoring delete httproute grafana --ignore-not-found
 
 step "App-deployer identity (shared)"
 # One ServiceAccount + ClusterRole that every app repo uses to deploy itself.

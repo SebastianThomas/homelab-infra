@@ -1,0 +1,22 @@
+# Headscale pre-auth key for the Grafana tailnet node (tailnet-ingress.yaml).
+# NOT applied by kustomize - the deploy workflow writes it from the
+# TS_AUTHKEY_GRAFANA Environment secret, or you create it by hand:
+#
+#   hs() { kubectl -n headscale exec -i deploy/headscale -- headscale "$@"; }
+#   hs preauthkeys create --user <ID> --reusable --expiration 8760h
+#
+#   kubectl -n monitoring create secret generic grafana-tailnet-authkey \
+#     --from-literal=authkey="<the key>"
+#
+# NOT --ephemeral: this is a long-lived node, and an ephemeral one is deleted
+# from headscale after it disconnects. Reusable so a state wipe can re-register.
+# The key is only read at first registration - after that the node key on the
+# `grafana-tailnet-state` volume is what reconnects, and the key may expire.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-tailnet-authkey
+  namespace: monitoring
+type: Opaque
+stringData:
+  authkey: "REPLACE_ME"

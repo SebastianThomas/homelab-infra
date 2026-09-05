@@ -141,9 +141,11 @@ spec:
         passwordKey: admin-password
       grafana.ini:
         server:
-          # Tailnet-only MagicDNS name (see httproute.yaml). Grafana builds
-          # absolute links (alert notifications, share URLs, OAuth redirects)
-          # from this, so it must match the hostname the browser uses.
+          # The tailnet-only name served by the grafana-tailnet pod (see
+          # tailnet-ingress.yaml). Grafana builds absolute links (alert
+          # notifications, share URLs) from this, so it must match the hostname
+          # the browser uses - and TLS is terminated one container over, hence
+          # https here even though Grafana itself serves plain HTTP.
           root_url: https://grafana.ts.homelab.sthomas.ch
         analytics:
           reporting_enabled: false

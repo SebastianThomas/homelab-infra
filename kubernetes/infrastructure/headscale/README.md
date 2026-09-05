@@ -60,6 +60,34 @@ hs nodes list
 hs routes list
 ```
 
+## Users: people vs. service nodes
+
+Nodes belong to a headscale **user**, and they are cheap — keep the two kinds
+apart so `headscale nodes list` stays readable and a future ACL has something to
+target:
+
+| User | Nodes |
+|---|---|
+| `<you>` (e.g. `sebas`) | your laptop, the K3s nodes, CI runners |
+| `services` | in-cluster workloads that are their own tailnet node — Grafana (`grafana`), and whatever comes next |
+
+```bash
+hs users create services
+hs users list                 # the numeric ID is what preauthkeys wants
+```
+
+> **This is organisation, not isolation.** With no policy in the database
+> (`policy.mode: database`, nothing loaded) headscale lets every node reach
+> every other node, whoever owns it. Separate users only start *restricting*
+> anything once you write an ACL — e.g. allow `group:admins` → the `services`
+> user's nodes on `:443` and nothing else. Until then, treat the split as
+> bookkeeping that makes that ACL possible later.
+
+MagicDNS is unaffected: names are flat (`<node>.ts.homelab.sthomas.ch`), not
+per-user, so moving a node between users does not change its name — but node
+names stay unique cluster-wide, so a second node called `grafana` becomes
+`grafana-1`.
+
 ## Creating a pre-auth key
 
 `headscale preauthkeys create` takes the user **ID** (a number), not the name
@@ -82,6 +110,7 @@ registration time.
 | **A device you register once** (your laptop, the VPS on the tailnet) | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
 | **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 8760h` |
 | **A K3s worker node** — registered once by hand (`tailscale up`), then persists | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` |
+| **An in-cluster service node** (`services` user; Grafana's `TS_AUTHKEY_GRAFANA`) | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` — **never** `--ephemeral`: the pod is long-lived and an ephemeral node is deleted the moment it disconnects |
 
 `--ephemeral` = the node is removed from headscale as soon as it disconnects
 (the CI action runs `tailscale logout` on exit), so runner nodes never pile up.
@@ -181,16 +210,24 @@ Edit [`files/extra-records.json`](files/extra-records.json) (A/AAAA only),
 commit — `deploy` re-applies and headscale hot-reloads within ~1 min. (The file
 is rendered into a hash-suffixed ConfigMap, so an edit also rolls the pod.)
 
-This is how a service is put **behind MagicDNS**: give it a name in the base
-domain pointing at the node's tailnet IP (`100.64.0.2` = `kube-cp-01`), route it
-from Traefik on that hostname, and it exists only inside the tailnet — no public
-DNS record, nothing to firewall. Grafana is the current example
-(`grafana.ts.homelab.sthomas.ch`, see
-[`../monitoring/README.md`](../monitoring/README.md#access--tailnet-only)); its
-TLS comes from the `*.ts.homelab.sthomas.ch` name on the cluster wildcard cert.
+Use it for records that point at something already on the tailnet. It is **not**
+how a cluster service is published on the tailnet: a static record pointing at
+`kube-cp-01` only sends the client to the public Traefik on the node's :443,
+which serves the same route to the public internet. A record cannot restrict
+anything.
 
-Names must not collide with a node's own MagicDNS name (`<hostname>.` + base
-domain) — headscale's node records win.
+**A tailnet-only service gets its own tailnet node instead.** A `tailscale`
+container in the workload's pod registers with headscale under the service's
+name, so MagicDNS answers with *that pod's* `100.64.0.0/10` address and the only
+way in is a WireGuard session — no public listener anywhere. Grafana is the
+worked example:
+[`../monitoring/README.md`](../monitoring/README.md#access--tailnet-only-enforced)
+(and the three reasons the Traefik-side approaches fail are in
+[`docs/gateway-api.md`](../../../docs/gateway-api.md#tailnet-only-services)).
+
+Such a node needs a **reusable, non-ephemeral** pre-auth key and persistent
+state; both node records and static records live in the same namespace, so a
+static record must not collide with a node name — headscale's node records win.
 
 ## Alternative: full UI (single-Pod integration mode)
 

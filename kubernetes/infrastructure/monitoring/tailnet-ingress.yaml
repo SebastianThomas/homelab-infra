@@ -1,0 +1,160 @@
+# Grafana's tailnet front door. This pod IS a Tailscale node: it registers with
+# Headscale as `grafana`, so MagicDNS answers `grafana.ts.homelab.sthomas.ch`
+# with the pod's own 100.64.0.0/10 address. Nothing else publishes Grafana -
+# there is no HTTPRoute, no Service in front of this pod, no hostPort - so the
+# ONLY path to Grafana is a WireGuard session from a node on the tailnet.
+#
+# Why not do this with Traefik + a firewall rule? Three dead ends, all of them
+# load-bearing (docs/gateway-api.md#tailnet-only-services):
+#   1. Traefik is the shared public edge. A hostname-only split (an HTTPRoute
+#      for a tailnet name) is obscurity: anyone can send that Host header to
+#      the public IP.
+#   2. An IP allowlist can't tell the two apart - K3s's klipper SNATs every
+#      client to the node CNI address before Traefik sees it.
+#   3. Binding a listener to the tailnet IP fails twice over: the Traefik chart
+#      threads `ports.*.hostIP` into the entrypoint's *bind* address (it would
+#      listen on the pod's loopback), and a hostPort on 100.64.0.2:443 is
+#      unschedulable anyway - klipper's svclb already holds 0.0.0.0:443, which
+#      the scheduler treats as a conflict with every IP on that port.
+# Giving the workload its own tailnet IP sidesteps all three: traffic to it is
+# WireGuard, decrypted inside this pod, and never touches the node's :443.
+#
+# Containers:
+#   tailscale - joins the Headscale tailnet and DNATs everything arriving on its
+#               tailnet IP to $POD_IP (i.e. to nginx, one container over).
+#   tls       - terminates the *.ts.homelab.sthomas.ch cert and proxies to the
+#               chart's Grafana Service.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-tailnet-state
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # tailscaled's node key + prefs, a few KB. Persisted so a restart
+      # RECONNECTS as the same node instead of re-registering: a fresh
+      # registration while the old node record still exists gets renamed
+      # `grafana-1` by headscale, and the MagicDNS name would move with it.
+      storage: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-tailnet
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-tailnet
+spec:
+  replicas: 1
+  # One tailnet identity, one RWO state volume - never two at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana-tailnet
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana-tailnet
+    spec:
+      containers:
+        - name: tailscale
+          image: docker.io/tailscale/tailscale:v1.102.3
+          env:
+            # Registration only - once the state volume holds a node key,
+            # tailscaled reconnects with that and ignores this.
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-tailnet-authkey
+                  key: authkey
+                  optional: true
+            - name: TS_EXTRA_ARGS
+              value: "--login-server=https://headscale.homelab.sthomas.ch"
+            # = the MagicDNS name grafana.ts.homelab.sthomas.ch.
+            - name: TS_HOSTNAME
+              value: "grafana"
+            # Kernel mode (tailscale0 in this pod's netns): TS_DEST_IP is a DNAT
+            # rule, which containerboot refuses to install in userspace mode.
+            - name: TS_USERSPACE
+              value: "false"
+            # Everything hitting our tailnet IP goes to this pod -> the `tls`
+            # container, port for port (443 -> 443).
+            - name: TS_DEST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: TS_STATE_DIR
+              value: /var/lib/tailscale
+            # containerboot notices it is in Kubernetes and otherwise stores
+            # state in a Secret named `tailscale` (TS_KUBE_SECRET's default),
+            # which needs a ServiceAccount with RBAC on that Secret. Empty =
+            # off, state lives on the PVC above instead.
+            - name: TS_KUBE_SECRET
+              value: ""
+            # Do NOT let MagicDNS replace the pod's resolv.conf - nginx has to
+            # keep resolving *.svc.cluster.local through CoreDNS.
+            - name: TS_ACCEPT_DNS
+              value: "false"
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 160Mi
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/tailscale
+            - name: dev-net-tun
+              mountPath: /dev/net/tun
+        - name: tls
+          image: docker.io/nginx:1.31.5-alpine
+          ports:
+            - name: https
+              containerPort: 443
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+            - name: tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: grafana-tailnet-state
+        # tailscaled opens the host's TUN device to create tailscale0. The
+        # container runtime does not provide /dev/net/tun by default; without
+        # it tailscaled silently falls back to userspace networking and
+        # TS_DEST_IP stops working.
+        - name: dev-net-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+        - name: nginx-config
+          configMap:
+            name: grafana-tailnet-nginx
+        # Issued by tailnet-certificate.yaml. The pod stays NotReady (nginx
+        # restarts) until cert-manager has written this Secret.
+        - name: tls
+          secret:
+            secretName: grafana-ts-tls

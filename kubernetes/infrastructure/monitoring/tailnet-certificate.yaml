@@ -1,0 +1,26 @@
+# TLS for the tailnet-only names, terminated by the `tls` container in
+# tailnet-ingress.yaml. Deliberately NOT on the public `gateway-tls` cert:
+# nothing that Traefik serves on the public IP should carry a tailnet name.
+#
+# WILDCARD, not `grafana.ts.homelab.sthomas.ch`, because of how the acme-dns
+# solver picks an account: cert-manager strips the leading `*.` and looks the
+# remainder up in the `acme-dns` Secret's zone map. `*.ts.homelab.sthomas.ch`
+# -> the `ts.homelab.sthomas.ch` account (one CNAME delegation of
+# `_acme-challenge.ts.homelab.sthomas.ch`, see README "DNS"); the bare host
+# would need its own account and its own delegation. The next tailnet-only
+# service reuses this Secret - nothing to add here.
+#
+# The names never resolve publicly. That is irrelevant to DNS-01: Let's Encrypt
+# only reads the TXT record at the delegated challenge name.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: grafana-ts-tls
+  namespace: monitoring
+spec:
+  secretName: grafana-ts-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.ts.homelab.sthomas.ch"

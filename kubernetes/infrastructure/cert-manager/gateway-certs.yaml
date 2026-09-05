@@ -17,14 +17,15 @@
 # `*.sthomas.ch`, so do NOT add them here: that would put 4 challenges on
 # 22f337ca and break issuance for the whole cert.
 #
-# `*.ts.homelab.sthomas.ch` is exactly that case: it covers the TAILNET-ONLY
-# names in headscale's MagicDNS base domain (Grafana today). Those names are
-# never in public DNS - irrelevant for DNS-01, which only needs the TXT at
-# `_acme-challenge.ts.homelab.sthomas.ch`, CNAME-delegated to its own acme-dns
-# account (one more zone key in the `ACME_DNS_JSON` secret). That delegation
-# must exist BEFORE this list changes: cert-manager re-orders the whole cert on
-# any change, and while the new order fails the last good `gateway-tls` keeps
-# serving - but it will not renew.
+# This cert is for the PUBLIC edge only. Tailnet-only names
+# (`*.ts.homelab.sthomas.ch`, headscale's MagicDNS base domain) are NOT here:
+# they get their own cert next to the workload that serves them, in
+# `infrastructure/monitoring/tailnet-certificate.yaml`. Traefik never answers on
+# a tailnet name, so it has no business carrying one.
+#
+# Any edit below re-orders the whole cert. While a new order fails (a zone that
+# is not delegated yet, or an account over the 2-TXT limit) the last good
+# `gateway-tls` keeps serving but stops renewing - so delegate first, then edit.
 #
 # Renewal is automatic (~30d before expiry), fully hands-off.
 apiVersion: cert-manager.io/v1
@@ -44,5 +45,3 @@ spec:
     # std-dive-logger's ws./importer./autocomplete. backends (dev + prod).
     - "*.std-dive-logger.sthomas.ch"
     - "*.std-dive-logger-dev.sthomas.ch"
-    # Tailnet-only MagicDNS names (headscale base_domain), e.g. Grafana.
-    - "*.ts.homelab.sthomas.ch"

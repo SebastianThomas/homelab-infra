@@ -19,32 +19,91 @@ mechanism as the bundled Traefik) via the two `HelmChart` resources here — no
 `helm` CLI in the pipeline. Chart versions are pinned and Renovate-tracked
 (`# renovate: chart=…`).
 
-## Access — tailnet only
+## Access — tailnet only, enforced
 
-**`https://grafana.ts.homelab.sthomas.ch` — you must be on the Headscale tailnet.**
-The old public `grafana.homelab.sthomas.ch` is gone (Traefik 404s it).
+**`https://grafana.ts.homelab.sthomas.ch` — only from a machine on the Headscale
+tailnet.** Not "hidden": there is no public route to Grafana and no port on the
+VPS that leads to it.
 
-The hostname sits in headscale's MagicDNS base domain (`ts.homelab.sthomas.ch`)
-and resolves *only* inside the tailnet, from a static A record in
-[`../headscale/files/extra-records.json`](../headscale/files/extra-records.json)
-pointing at `kube-cp-01`'s tailnet IP (`100.64.0.2`, = `k3s_cp_tailscale_ip`).
-There is no public DNS record, so a name change there is the whole move —
-routing is unchanged: the `grafana` `HTTPRoute` still attaches to
-`traefik-gateway` in `kube-system`, and TLS is still the cluster wildcard cert
-(`gateway-tls`), which now also carries `*.ts.homelab.sthomas.ch`.
+`grafana.ts.homelab.sthomas.ch` is not a DNS record. The `grafana-tailnet` pod
+([`tailnet-ingress.yaml`](tailnet-ingress.yaml)) **is a Tailscale node**: it
+registers with Headscale as `grafana`, MagicDNS answers with that node's own
+`100.64.0.0/10` address, and traffic to it is WireGuard, decrypted inside the
+pod. Two containers:
 
-> **What this is and isn't.** Traefik stays the *public* edge and terminates
-> :443 on the public IP, so this is host-based hiding: the name is unresolvable
-> and unguessable from outside, but someone who knows it can still reach Grafana
-> by sending that `Host` header to the VPS. A source-IP allowlist can't fix
-> that — K3s's klipper SNATs every client to the node CNI address, so Traefik
-> sees the same IP for tailnet and public traffic. Grafana's own login stays the
-> authentication boundary; on a laptop off the tailnet, use
-> `kubectl -n monitoring port-forward svc/victoria-metrics-k8s-stack-grafana 3000:80`.
+| Container | Job |
+|---|---|
+| `tailscale` | joins the tailnet (pre-auth key + a 128Mi state PVC), DNATs everything arriving on its tailnet IP to `$POD_IP` |
+| `tls` | nginx: terminates `*.ts.homelab.sthomas.ch` ([`tailnet-certificate.yaml`](tailnet-certificate.yaml)), proxies to the chart's Grafana Service, keeps the WebSocket upgrade for Grafana Live |
 
-Not resolving? `tailscale status` (are you on the homelab profile?), then
-`tailscale debug prefs | grep -i controlurl` — MagicDNS only answers this name
-on the Headscale tailnet.
+The pod has **no Service, no hostPort and no HTTPRoute** — the tailnet IP is its
+only address. Grafana's own `root_url` matches, so alert and share links point
+at the same name.
+
+### Why not Traefik + an allowlist?
+
+Three dead ends, each fatal on its own — the reasoning is in
+[`docs/gateway-api.md`](../../../docs/gateway-api.md#tailnet-only-services):
+
+1. **A tailnet hostname on the shared Gateway is obscurity, not access
+   control.** Traefik terminates :443 on the public IP; anyone who knows the
+   name can send it as a `Host` header. (And Let's Encrypt publishes every
+   issued name to the CT logs, so the name is not a secret.)
+2. **A source-IP allowlist cannot work.** K3s's klipper SNATs every client to
+   the node CNI address before Traefik sees it, so tailnet and public traffic
+   arrive from the same IP.
+3. **A listener bound to the tailnet IP cannot be built here.** The Traefik
+   chart threads `ports.*.hostIP` into the entrypoint's *bind* address (it ends
+   up on the pod's loopback), and a `hostPort` on `100.64.0.2:443` is
+   unschedulable regardless — klipper's svclb already holds `0.0.0.0:443`, which
+   the scheduler counts as a conflict with every IP on that port.
+
+Giving the workload its own tailnet IP sidesteps all three.
+
+### First run
+
+The pod needs a Headscale pre-auth key in `monitoring/grafana-tailnet-authkey`
+(see [`grafana-tailnet-authkey.example.yaml`](grafana-tailnet-authkey.example.yaml)).
+`deploy` writes it from the `TS_AUTHKEY_GRAFANA` Environment secret; locally,
+create it before applying. Issue it for the **`services`** user, not your own —
+in-cluster nodes are kept in their own headscale user
+([`../headscale/README.md`](../headscale/README.md#users-people-vs-service-nodes)).
+**Reusable, not ephemeral**: an ephemeral node is deleted from headscale once it
+disconnects.
+
+```bash
+kubectl -n headscale exec -i deploy/headscale -- headscale users create services
+```
+
+```bash
+kubectl -n headscale exec -i deploy/headscale -- headscale preauthkeys create --user <ID> --reusable --expiration 8760h
+```
+
+The key is read **only at first registration**; afterwards the node key on the
+`grafana-tailnet-state` PVC is what reconnects, so the key may expire or rotate
+freely. cert-manager needs a minute or two for `grafana-ts-tls` on a fresh
+cluster — until it exists the `tls` container restarts in a loop.
+
+### When it doesn't resolve
+
+```bash
+kubectl -n monitoring logs deploy/grafana-tailnet -c tailscale
+kubectl -n headscale exec -i deploy/headscale -- headscale nodes list
+```
+
+- `tailscale status` on your machine — are you on the homelab profile?
+  (`tailscale debug prefs | grep -i controlurl`)
+- A node named **`grafana-1`** in `headscale nodes list` means it re-registered
+  while the old record still existed (state PVC wiped, or an ephemeral key was
+  used). MagicDNS follows the new name — delete the stale node and restart the
+  pod.
+- Node present in `headscale nodes list` but connections hang: the DNAT rule is
+  missing. `kubectl -n monitoring exec deploy/grafana-tailnet -c tailscale --
+  iptables -t nat -S PREROUTING` should show a rule to the pod IP. If the logs
+  mention userspace networking, tailscaled did not get `/dev/net/tun` and
+  `TS_DEST_IP` is inert — check the hostPath mount.
+- Off the tailnet entirely, there is no back door by design:
+  `kubectl -n monitoring port-forward svc/victoria-metrics-k8s-stack-grafana 3000:80`.
 
 ## Grafana admin login
 
@@ -81,7 +140,8 @@ its **first** start and never re-reads it, so:
 `kube-cp-01` also runs ~13 legacy docker-compose sites (see
 [`docs/…`](../../../README.md)); RAM is the tight resource. So:
 
-- every component has explicit `resources` (whole stack ≈ 1–1.4 GiB working set);
+- every component has explicit `resources` (whole stack ≈ 1–1.4 GiB working set,
+  plus ~60 MiB for the `grafana-tailnet` pod);
 - `vmsingle` / `vlsingle` retention is **15d**; bump in the `HelmChart` values if
   you have headroom;
 - `vmsingle` runs with `-memory.allowedPercent=50` and
