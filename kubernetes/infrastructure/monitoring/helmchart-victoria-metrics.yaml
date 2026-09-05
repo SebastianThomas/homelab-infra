@@ -141,7 +141,10 @@ spec:
         passwordKey: admin-password
       grafana.ini:
         server:
-          root_url: https://grafana.homelab.sthomas.ch
+          # Tailnet-only MagicDNS name (see httproute.yaml). Grafana builds
+          # absolute links (alert notifications, share URLs, OAuth redirects)
+          # from this, so it must match the hostname the browser uses.
+          root_url: https://grafana.ts.homelab.sthomas.ch
         analytics:
           reporting_enabled: false
           check_for_updates: false

@@ -178,7 +178,19 @@ Reach homelab-tailnet hosts through the proxy
 ## Editing DNS / tailnet records
 
 Edit [`files/extra-records.json`](files/extra-records.json) (A/AAAA only),
-commit — `deploy` re-applies and headscale hot-reloads within ~1 min.
+commit — `deploy` re-applies and headscale hot-reloads within ~1 min. (The file
+is rendered into a hash-suffixed ConfigMap, so an edit also rolls the pod.)
+
+This is how a service is put **behind MagicDNS**: give it a name in the base
+domain pointing at the node's tailnet IP (`100.64.0.2` = `kube-cp-01`), route it
+from Traefik on that hostname, and it exists only inside the tailnet — no public
+DNS record, nothing to firewall. Grafana is the current example
+(`grafana.ts.homelab.sthomas.ch`, see
+[`../monitoring/README.md`](../monitoring/README.md#access--tailnet-only)); its
+TLS comes from the `*.ts.homelab.sthomas.ch` name on the cluster wildcard cert.
+
+Names must not collide with a node's own MagicDNS name (`<hostname>.` + base
+domain) — headscale's node records win.
 
 ## Alternative: full UI (single-Pod integration mode)
 

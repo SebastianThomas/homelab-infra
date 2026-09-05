@@ -3,11 +3,28 @@
 # `traefik-gateway`, kube-system). Issued via DNS-01 / acme-dns (see
 # cluster-issuer.yaml) - the only ACME method that can do wildcards.
 #
-# Every app hostname is one label deep (`<app>.sthomas.ch` /
+# Most app hostnames are one label deep (`<app>.sthomas.ch` /
 # `<app>.homelab.sthomas.ch`), so a new app is covered automatically - nothing
-# to add here. A future app that needs a TWO-label name (`x.y.sthomas.ch`) needs
-# a `*.y.sthomas.ch` line below + one acme-dns delegation for
-# `_acme-challenge.y.sthomas.ch` (see docs/gateway-api.md#tls).
+# to add here. An app that needs a TWO-label name (`x.y.sthomas.ch`) needs a
+# `*.y.sthomas.ch` line below + one acme-dns delegation for
+# `_acme-challenge.y.sthomas.ch` (see docs/gateway-api.md#tls) - a wildcard
+# matches exactly one label, so `*.sthomas.ch` does NOT cover `x.y.sthomas.ch`.
+#
+# acme-dns keeps only the LAST 2 TXT per account, so count challenges per
+# account, not per name: `sthomas.ch` (apex + `*`) is at its limit of 2 on
+# f08ee2f4, and the two std-dive-logger zones share account 22f337ca - one TXT
+# each, also exactly 2. Their apexes are one label deep and already covered by
+# `*.sthomas.ch`, so do NOT add them here: that would put 4 challenges on
+# 22f337ca and break issuance for the whole cert.
+#
+# `*.ts.homelab.sthomas.ch` is exactly that case: it covers the TAILNET-ONLY
+# names in headscale's MagicDNS base domain (Grafana today). Those names are
+# never in public DNS - irrelevant for DNS-01, which only needs the TXT at
+# `_acme-challenge.ts.homelab.sthomas.ch`, CNAME-delegated to its own acme-dns
+# account (one more zone key in the `ACME_DNS_JSON` secret). That delegation
+# must exist BEFORE this list changes: cert-manager re-orders the whole cert on
+# any change, and while the new order fails the last good `gateway-tls` keeps
+# serving - but it will not renew.
 #
 # Renewal is automatic (~30d before expiry), fully hands-off.
 apiVersion: cert-manager.io/v1
@@ -24,3 +41,8 @@ spec:
     - sthomas.ch
     - "*.sthomas.ch"
     - "*.homelab.sthomas.ch"
+    # std-dive-logger's ws./importer./autocomplete. backends (dev + prod).
+    - "*.std-dive-logger.sthomas.ch"
+    - "*.std-dive-logger-dev.sthomas.ch"
+    # Tailnet-only MagicDNS names (headscale base_domain), e.g. Grafana.
+    - "*.ts.homelab.sthomas.ch"

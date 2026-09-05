@@ -19,12 +19,32 @@ mechanism as the bundled Traefik) via the two `HelmChart` resources here — no
 `helm` CLI in the pipeline. Chart versions are pinned and Renovate-tracked
 (`# renovate: chart=…`).
 
-## Access
+## Access — tailnet only
 
-`https://grafana.homelab.sthomas.ch` — the `grafana` `HTTPRoute` attaches to
-`traefik-gateway` in `kube-system`; Traefik is the public edge. DNS is the
-`*.homelab.sthomas.ch` wildcard, TLS is the cluster wildcard cert
-(`gateway-tls`). Nothing per-app.
+**`https://grafana.ts.homelab.sthomas.ch` — you must be on the Headscale tailnet.**
+The old public `grafana.homelab.sthomas.ch` is gone (Traefik 404s it).
+
+The hostname sits in headscale's MagicDNS base domain (`ts.homelab.sthomas.ch`)
+and resolves *only* inside the tailnet, from a static A record in
+[`../headscale/files/extra-records.json`](../headscale/files/extra-records.json)
+pointing at `kube-cp-01`'s tailnet IP (`100.64.0.2`, = `k3s_cp_tailscale_ip`).
+There is no public DNS record, so a name change there is the whole move —
+routing is unchanged: the `grafana` `HTTPRoute` still attaches to
+`traefik-gateway` in `kube-system`, and TLS is still the cluster wildcard cert
+(`gateway-tls`), which now also carries `*.ts.homelab.sthomas.ch`.
+
+> **What this is and isn't.** Traefik stays the *public* edge and terminates
+> :443 on the public IP, so this is host-based hiding: the name is unresolvable
+> and unguessable from outside, but someone who knows it can still reach Grafana
+> by sending that `Host` header to the VPS. A source-IP allowlist can't fix
+> that — K3s's klipper SNATs every client to the node CNI address, so Traefik
+> sees the same IP for tailnet and public traffic. Grafana's own login stays the
+> authentication boundary; on a laptop off the tailnet, use
+> `kubectl -n monitoring port-forward svc/victoria-metrics-k8s-stack-grafana 3000:80`.
+
+Not resolving? `tailscale status` (are you on the homelab profile?), then
+`tailscale debug prefs | grep -i controlurl` — MagicDNS only answers this name
+on the Headscale tailnet.
 
 ## Grafana admin login
 

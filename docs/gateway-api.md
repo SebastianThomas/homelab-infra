@@ -74,9 +74,9 @@ kubectl -n myapp get httproute myapp \
 
 **Nothing per app.** The `websecure` listener serves one cert-manager
 **wildcard** cert (`gateway-tls`: `sthomas.ch`, `*.sthomas.ch`,
-`*.homelab.sthomas.ch`, …), issued via **DNS-01 / acme-dns**. Any new
-`HTTPRoute` hostname under a covered zone is already valid — no cert edit, no
-listener change.
+`*.homelab.sthomas.ch`, `*.ts.homelab.sthomas.ch`), issued via **DNS-01 /
+acme-dns**. Any new `HTTPRoute` hostname under a covered zone is already valid —
+no cert edit, no listener change.
 
 - Traefik's Gateway API provider is `certificateRefs`-only (no per-route ACME,
   no entrypoint `certResolver` — the router's `tls` section from the listener
@@ -89,3 +89,23 @@ listener change.
 - A future app that needs a **two-label** subdomain (`x.y.sthomas.ch`) needs a
   `*.y.sthomas.ch` line in `gateway-certs.yaml` + one acme-dns delegation for
   `_acme-challenge.y.sthomas.ch`. One-label names never need anything.
+  `*.ts.homelab.sthomas.ch` (tailnet-only names, below) is such a case and is
+  already on the cert. Delegate first, then deploy the cert change: a name-list
+  change re-orders the whole cert, and a failing order leaves the last good one
+  serving but not renewing.
+
+## Tailnet-only routes
+
+A route can be hidden from the internet by giving it a hostname that only exists
+in the tailnet: a name under headscale's MagicDNS base domain
+`ts.homelab.sthomas.ch`, backed by a static A record in
+[`../kubernetes/infrastructure/headscale/files/extra-records.json`](../kubernetes/infrastructure/headscale/files/extra-records.json)
+pointing at the node's tailnet IP (`100.64.0.2`). Grafana is the example:
+`grafana.ts.homelab.sthomas.ch`. The `HTTPRoute` is otherwise completely
+ordinary — same Gateway, same listener, same wildcard cert.
+
+The hiding is **host-based**: Traefik still terminates :443 on the public IP and
+would serve the route to anyone who sends that `Host` header. Source-IP
+filtering is not an option — K3s's klipper SNATs every client to the node CNI
+address, so Traefik sees one IP for tailnet and public traffic alike. Use it to
+keep a service off public DNS and out of scanners, not as the only auth.

@@ -126,13 +126,17 @@ A/CNAME — **no Cloudflare proxy**, it breaks the Tailscale control protocol):
 | Name | Type | Value | Covers |
 |---|---|---|---|
 | `homelab.sthomas.ch` | CNAME (or A) | `h2977839.stratoserver.net` (or `81.169.131.24`) | the K3s API on `:6443` |
-| `*.homelab.sthomas.ch` | CNAME | `homelab.sthomas.ch` | Headscale, Grafana + every app — one wildcard, no per-app records |
+| `*.homelab.sthomas.ch` | CNAME | `homelab.sthomas.ch` | Headscale + every public app — one wildcard, no per-app records |
 
 No wildcard support at your DNS host? Add a CNAME per name instead
 (`headscale.homelab.sthomas.ch`, then one per app, all → `homelab.sthomas.ch`).
 
 `ts.homelab.sthomas.ch` (the MagicDNS base domain) needs **no** record — it is
-answered inside the tailnet only.
+answered inside the tailnet only. Tailnet-only services live there: **Grafana is
+`grafana.ts.homelab.sthomas.ch`**, a static A record in headscale's
+[`extra-records.json`](kubernetes/infrastructure/headscale/files/extra-records.json)
+→ `100.64.0.2`, unreachable and unresolvable off the tailnet. Its
+`_acme-challenge` name *is* delegated, though — see below.
 
 **TLS delegation.** Traefik serves one cert-manager DNS-01 *wildcard* cert. If
 your DNS host has no ACME API (wint.global, Strato, …), CNAME-delegate the
@@ -143,13 +147,21 @@ challenge names to [acme-dns](https://github.com/joohoi/acme-dns):
    apex + `*` of the same zone share one; more than 2 challenges on one account
    collide (acme-dns keeps the last 2 TXT).
 2. At your DNS host: `_acme-challenge.sthomas.ch`,
-   `_acme-challenge.homelab.sthomas.ch`, … → the returned `<uuid>.auth.acme-dns.io`.
+   `_acme-challenge.homelab.sthomas.ch`,
+   `_acme-challenge.ts.homelab.sthomas.ch`, … → the returned
+   `<uuid>.auth.acme-dns.io`. The `ts.` one covers the wildcard for the
+   tailnet-only MagicDNS names (Grafana); the *challenge* record is public even
+   though the names it certifies are not.
 3. Combine the JSONs keyed by zone and store as the **`ACME_DNS_JSON`**
    Environment secret (the `deploy` workflow writes it to `cert-manager/acme-dns`):
    ```bash
-   jq -n '{ "sthomas.ch": input, "homelab.sthomas.ch": input }' \
-     ~/acmedns-sthomas.json ~/acmedns-homelab.json | pbcopy
+   jq -n '{ "sthomas.ch": input, "homelab.sthomas.ch": input, "ts.homelab.sthomas.ch": input }' \
+     ~/acmedns-sthomas.json ~/acmedns-homelab.json ~/acmedns-ts-homelab.json | pbcopy
    ```
+   Do this **before** deploying a change to `gateway-certs.yaml`: cert-manager
+   re-orders the whole wildcard cert whenever its name list changes, and an
+   undelegated zone makes that order fail (the last good cert keeps serving,
+   but stops renewing).
 
 See [`docs/gateway-api.md`](docs/gateway-api.md#tls) and
 `kubernetes/infrastructure/cert-manager/`.
@@ -211,9 +223,11 @@ and open `…/admin`.
 ### 7. Grafana
 
 `deploy` brings up VictoriaMetrics + VictoriaLogs + Grafana (~40 dashboards, VM
-and VL datasources pre-wired) at `https://grafana.homelab.sthomas.ch` — its
+and VL datasources pre-wired) at **`https://grafana.ts.homelab.sthomas.ch` —
+tailnet only** (MagicDNS; there is no public record and no public route). Its
 HTTPRoute attaches to the shared Traefik Gateway, TLS is the wildcard cert
-(nothing per-app). Log in as `admin`:
+(nothing per-app). Off the tailnet, `kubectl -n monitoring port-forward
+svc/victoria-metrics-k8s-stack-grafana 3000:80`. Log in as `admin`:
 
 ```bash
 kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
