@@ -163,6 +163,8 @@ spec:
       resources:
         requests: { cpu: 25m, memory: 64Mi }
         limits: { memory: 160Mi }
+      metricLabelsAllowlist:
+        - pods=[app.kubernetes.io/name,app.kubernetes.io/instance,app.kubernetes.io/component]
 
     prometheus-node-exporter:
       resources:
