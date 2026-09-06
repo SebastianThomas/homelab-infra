@@ -51,4 +51,3 @@ spec:
       scheme: http
       scrapeTimeout: 14s
   selector: {}
-
