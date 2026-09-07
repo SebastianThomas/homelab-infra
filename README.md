@@ -364,7 +364,10 @@ sudo adduser --disabled-password --gecos "" <user>
 sudo usermod -aG sudo <user>
 echo '<user> ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/<user>
 sudo install -d -m700 -o <user> -g <user> /home/<user>/.ssh
-echo '<public key matching the SSH_PRIVATE_KEY secret>' | sudo tee /home/<user>/.ssh/authorized_keys
+# BOTH keys. With only the CI key you cannot reach the node yourself when CI is
+# down - and CI is the first thing that breaks when the cluster does.
+printf '%s\n' '<public key matching the SSH_PRIVATE_KEY secret>' '<your own key>' \
+  | sudo tee /home/<user>/.ssh/authorized_keys
 sudo chown <user>:<user> /home/<user>/.ssh/authorized_keys && sudo chmod 600 "$_"
 
 # 3. join the tailnet for admin reachability + exit-node. Headscale pre-auth key
