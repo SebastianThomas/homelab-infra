@@ -96,6 +96,31 @@
     path: /usr/local/bin/wait-tailscale0
     state: absent
 
+# flannel over wg0 gives a small pod MTU; the klipper -> Traefik ingress path
+# then black-holes large packets (a tailscale ClientHello) because the ICMP
+# "frag needed" is lost in klipper's NAT. Clamp forwarded TCP MSS to the pod
+# MTU so no segment is ever too big. See the script header.
+- name: Install the pod-network MSS clamp
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: pod-mss-clamp, dest: /usr/local/sbin/pod-mss-clamp, mode: "0755" }
+    - { src: pod-mss-clamp.service, dest: /etc/systemd/system/pod-mss-clamp.service, mode: "0644" }
+  loop_control:
+    label: "{{ item.dest }}"
+  register: k3s_cp_mss_clamp
+
+- name: Enable and (re)run the MSS clamp
+  ansible.builtin.systemd:
+    name: pod-mss-clamp.service
+    enabled: true
+    state: "{{ 'restarted' if k3s_cp_mss_clamp is changed else 'started' }}"
+    daemon_reload: true
+
 - name: Download the K3s install script
   ansible.builtin.get_url:
     url: "{{ k3s_install_script_url }}"

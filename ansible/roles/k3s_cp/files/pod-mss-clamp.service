@@ -1,0 +1,12 @@
+[Unit]
+Description=Clamp pod-network TCP MSS (ingress over the small flannel MTU)
+After=k3s.service network-online.target
+Wants=k3s.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/pod-mss-clamp
+
+[Install]
+WantedBy=multi-user.target
