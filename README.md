@@ -28,7 +28,8 @@ Hostname pattern `kube-<role>-<number>`.
 | `kube-worker-01` | Raspberry Pi 4 (8 GB) at home, Ubuntu Server arm64, behind NAT | K3s **agent**, opt-in workloads only (tainted) |
 
 `kube-cp-01` is the whole cluster on its own. A worker joins the pod network
-over the Headscale tailnet — see [Adding a worker node](#adding-a-worker-node).
+over a dedicated point-to-point **WireGuard** link (`wg0`) — not the tailnet,
+which stays admin-only — see [Adding a worker node](#adding-a-worker-node).
 
 Node labels/taints (set by Ansible via `--node-label` / `--node-taint`):
 `homelab.sthomas.ch/location=strato` on the VPS; `location=home` +
@@ -62,8 +63,8 @@ The Pi is **arm64**, so every image in that namespace needs an `arm64` variant
 manifest-list image works on both nodes unchanged.
 
 Ingress is unaffected: Traefik stays on the VPS and reaches Pi pods over the
-flannel-on-tailscale mesh, so an `HTTPRoute` for a Pi workload looks like any
-other.
+flannel-on-WireGuard pod mesh, so an `HTTPRoute` for a Pi workload looks like
+any other.
 
 ---
 
@@ -108,9 +109,10 @@ Create an Environment named **`production`** (Settings → Environments) with:
 | `KUBE_API` | `https://kube-cp-01.ts.homelab.sthomas.ch:6443` (tailnet) |
 | `HEADSCALE_URL` | `https://headscale.homelab.sthomas.ch` |
 | `K3S_TOKEN` | `openssl rand -hex 32` — the cluster join secret |
+| `WG_PRIVATE_KEYS` | JSON `{"kube-cp-01":"<wg genkey>","kube-worker-01":"<wg genkey>"}` — one WireGuard private key per pod-mesh node. Put each matching `wg pubkey` in `inventory/hosts.yml` (`wg_public_key`). Running a single node with no worker? Set `k3s_flannel_iface: ""` in `group_vars/all/main.yml` and skip this. |
 | `HEADPLANE_COOKIE_SECRET` | `openssl rand -hex 16` (exactly 32 chars; set after first deploy) |
 | `HEADPLANE_API_KEY` | `headscale apikeys create --expiration 8760h` output (set after first deploy) |
-| `TS_AUTHKEY` | Headscale pre-auth key for CI runners — `--reusable --ephemeral --expiration 8760h` (not `100y` — a headscale upgrade can reject those). Same value in every app repo. |
+| `TS_AUTHKEY` | Headscale pre-auth key for CI runners, issued for the **`github`** user — `--reusable --ephemeral --expiration 8760h` (not `100y` — a headscale upgrade can reject those). Same value in every app repo. |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (optional — `bootstrap.sh` generates a random one otherwise) |
 | `GRAFANA_ADMIN_USER` | Grafana admin username (optional, defaults to `admin`) |
 | `TS_AUTHKEY_GRAFANA` | Headscale pre-auth key for the Grafana tailnet node, issued for the **`services`** user — `--reusable --expiration 8760h` (**not** `--ephemeral`). Without it Grafana has no way in at all. |
@@ -186,11 +188,18 @@ Edit `ansible/inventory/hosts.yml` (`ansible_host`, `ansible_user`) and
 `ansible/group_vars/all/main.yml` (`k3s_version` — pin to a current release from
 <https://github.com/k3s-io/k3s/releases>).
 
+Starting single-node with no worker yet? Set `k3s_flannel_iface: ""` in
+`group_vars/all/main.yml` — then `WG_PRIVATE_KEYS` and the `wg_*` inventory
+fields aren't needed until you [add a worker](#adding-a-worker-node). Otherwise
+generate `kube-cp-01`'s WireGuard keypair now (see that section) so `wg0` comes
+up on the first provision.
+
 ### 4. Provision the host
 
 Run the **`provision`** workflow (Actions tab → Run workflow). It writes the
-vault from the Environment secrets, then `ansible-playbook site.yml`: ufw, K3s
-server, and it leaves a kubeconfig on the node.
+vault from the Environment secrets, then `ansible-playbook site.yml`: base OS,
+the `wg0` pod-mesh link, ufw, the K3s server, and it leaves a kubeconfig on the
+node.
 
 Local equivalent:
 
@@ -305,23 +314,44 @@ Ansible never deploys anything under `kubernetes/`.
 ## Private API access over Tailscale
 
 `kube-cp-01` runs a standalone `tailscaled` on the Headscale tailnet
-(`100.64.0.2`), so `kubectl` — yours and CI's — reaches the API by its MagicDNS
-name and public `:6443` is firewalled off:
+(`100.64.0.2`, the `infra` user), so `kubectl` — yours and CI's — reaches the
+API by its MagicDNS name and public `:6443` is firewalled off:
 
 - API cert carries `kube-cp-01.ts.homelab.sthomas.ch` + `100.64.0.2` (Ansible,
-  from `k3s_cp_tailscale_ip`).
+  from `k3s_cp_tailscale_ip`) **and** the pod-mesh IP `10.10.0.1` (the worker's
+  `server:`).
 - `KUBE_API` / `SSH_HOST` secrets point at the MagicDNS name; CI runners join
-  the tailnet per-run with a `--reusable --ephemeral` Headscale key (`TS_AUTHKEY`).
+  the tailnet per-run with a `--reusable --ephemeral` Headscale key (`TS_AUTHKEY`,
+  the `github` user).
 - The `firewall` role deletes the public `:6443` rule and trusts `tailscale0`
-  wholesale. `:22`/`:80`/`:443` stay public. Emergency access if the tailnet
-  breaks: `ssh <user>@homelab.sthomas.ch` → `sudo kubectl …`, or
-  `sudo ufw allow 6443/tcp`.
+  and `wg0` wholesale. `:22`/`:80`/`:443` and `51820/udp` (WireGuard) stay
+  public. Emergency access if the tailnet breaks:
+  `ssh <user>@homelab.sthomas.ch` → `sudo kubectl …`, or `sudo ufw allow 6443/tcp`.
+
+The tailnet is **admin-plane only**. The cluster itself — the worker's join and
+all pod traffic — rides the `wg0` WireGuard link, which has no control server, so
+a Headscale outage never stops the cluster forming or `kube-cp-01` from booting.
 
 ## Adding a worker node
 
-A worker's pod traffic rides the tailnet (flannel on `tailscale0`), so the node
-must be on the tailnet *before* Ansible touches it. `kube-worker-01` (the Pi) is
-already in the inventory — for another node, copy that block.
+A worker joins the cluster over the `wg0` WireGuard link (flannel + the API
+`server:` both ride it). It also joins the tailnet (as the **`infra`** user),
+but only so Ansible can reach it (`ansible_host` is its MagicDNS name) and to
+advertise itself as an exit node — nothing cluster-critical depends on the
+tailnet. `kube-worker-01` (the Pi) is already in the inventory — for another
+node, copy that block.
+
+**Generate the node's WireGuard keypair** (anywhere `wg` is installed — one per
+pod-mesh node, including `kube-cp-01` itself):
+
+```bash
+priv=$(wg genkey); printf 'private: %s\npublic:  %s\n' "$priv" "$(printf %s "$priv" | wg pubkey)"
+```
+
+Private key → `WG_PRIVATE_KEYS` (CI) / `vault_wg_private_keys` (local vault),
+keyed by the inventory hostname. Public key → the node's `wg_public_key` in
+`inventory/hosts.yml`. Pick its `wg_ip` from `wg_pod_mesh_subnet` (`.3`, `.4`, …;
+`.1` is the hub, `.2` is the Pi).
 
 **On the node** (console / LAN — Ansible can't reach it yet):
 
@@ -337,19 +367,21 @@ sudo install -d -m700 -o <user> -g <user> /home/<user>/.ssh
 echo '<public key matching the SSH_PRIVATE_KEY secret>' | sudo tee /home/<user>/.ssh/authorized_keys
 sudo chown <user>:<user> /home/<user>/.ssh/authorized_keys && sudo chmod 600 "$_"
 
-# 3. join the tailnet (Headscale pre-auth key: `headscale preauthkeys create
-#    --user 1 --reusable --expiration 8760h`). --accept-dns=false keeps the
-#    node's own resolver; --advertise-exit-node because it's also an exit node.
+# 3. join the tailnet for admin reachability + exit-node. Headscale pre-auth key
+#    for the `infra` user (get its ID from `headscale users list`):
+#    `headscale preauthkeys create --user <infra-id> --reusable --expiration 8760h`
+#    --accept-dns=false keeps the node's own resolver.
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --login-server=https://headscale.homelab.sthomas.ch \
   --authkey=<key> --hostname=kube-worker-01 \
   --accept-dns=false --advertise-exit-node
-tailscale ip -4      # note this - it goes in the inventory
 ```
 
+Ansible's `wireguard` role writes `/etc/wireguard/wg0.conf` and starts
+`wg-quick@wg0` — you do **not** configure WireGuard by hand on the node.
+
 **On kube-cp-01** — approve the node's advertised routes (`--advertise-exit-node`
-= `0.0.0.0/0,::/0`). The pod CIDR needs *no* route: flannel's VXLAN is wrapped in
-node-to-node tailnet traffic, which tailscale already carries.
+= `0.0.0.0/0,::/0`):
 
 ```bash
 sudo k3s kubectl -n headscale exec deploy/headscale -- headscale nodes list
@@ -361,20 +393,25 @@ sudo k3s kubectl -n headscale exec deploy/headscale -- headscale preauthkeys exp
 
 **Then, as code:**
 
-1. Put the node's tailnet IP in its inventory block (`node_ip:`), commit.
-2. Run **`provision` `limit: k3s_cp`** first — adds `flannel-iface: tailscale0`
-   and restarts k3s (~1 min; running pods and Traefik keep serving). The CP's
-   node InternalIP moves to `100.64.0.2` — cosmetic, klipper still serves
-   `:80`/`:443` on the public IP. Take a `/var/lib/rancher/k3s` backup first
-   (see [Backups](#backups)).
+1. Fill in the node's inventory block: `wg_ip`, `wg_public_key`, and
+   `node_ip:` (= `wg_ip`). Add its private key to the vault / `WG_PRIVATE_KEYS`.
+   If the CP was bootstrapped single-node, also set `k3s_flannel_iface: "wg0"`
+   and give `kube-cp-01` its own `wg_ip` / `wg_public_key` + key. Commit.
+2. Run **`provision` `limit: k3s_cp`** first — brings up the hub end of `wg0`,
+   opens `51820/udp`, adds `10.10.0.1` to the API cert, and (if `flannel-iface`
+   changed) restarts k3s (~1 min; running pods and Traefik keep serving).
+   `flannel-iface` is CNI-only: the CP's InternalIP and public `:80`/`:443` are
+   untouched. Take a `/var/lib/rancher/k3s` backup first (see [Backups](#backups)).
 3. Run **`provision` `limit: kube-worker-01`** — Pi prereqs (memory cgroup on
-   `/boot/firmware/cmdline.txt` + a reboot, `vxlan` module), the agent (joins
-   over `https://100.64.0.2:6443` with `node-name` pinned to the inventory
-   name), IP forwarding + UDP-GRO tuning for the exit node, and a
-   `~/.kube/config` for the login user pointing at the CP over the tailnet.
-   It also wipes stale agent state / deletes an old node object if the Pi first
-   registered under its image hostname.
-4. Verify: `kubectl get nodes -o wide` (`kube-worker-01` `Ready`), then a
+   `/boot/firmware/cmdline.txt` + a reboot, `vxlan` module), `wg0` (spoke end,
+   dials the hub with a keepalive), the agent (joins over
+   `https://10.10.0.1:6443` with `node-name` pinned to the inventory name),
+   IP forwarding for the exit node, and a `~/.kube/config` for the login user
+   pointing at the CP over the tailnet. It also wipes stale agent state /
+   deletes an old node object if the Pi first registered under its image
+   hostname.
+4. Verify: `sudo wg show` on both nodes (a recent handshake + non-zero
+   transfer), `kubectl get nodes -o wide` (`kube-worker-01` `Ready`), then a
    tolerating test pod:
 
    ```bash
@@ -391,17 +428,21 @@ does that with the annotations in
 [`kubernetes/apps/_template/namespace.yaml`](kubernetes/apps/_template/namespace.yaml)
 (`location=home` selector + the `edge` toleration).
 
-### If the tailnet is down when kube-cp-01 boots
+### If the pod mesh (wg0) is down when kube-cp-01 boots
 
-`flannel-iface: tailscale0` means k3s waits (up to 90 s, systemd `ExecStartPre`)
-for `tailscale0` before starting. A genuine Tailscale outage at boot leaves k3s
-`failed` after the retry budget (`10-startlimit.conf`). Running pods (Traefik
-included) keep serving through it. Recover with:
+k3s is ordered `After=wg-quick@wg0` and `flannel-iface: wg0`. `wg0` is a static
+kernel interface — `wg-quick` configures it in a second with nothing to reach
+first — so k3s starts normally even with the tailnet or the Pi offline. The
+worst case is the CP↔Pi mesh being down: `kube-cp-01` still runs the whole
+cluster on its own; the Pi's pods go `NotReady` until the link is back.
 
 ```bash
-sudo systemctl restart tailscaled
-sudo systemctl reset-failed k3s && sudo systemctl start k3s
+sudo systemctl restart wg-quick@wg0     # re-read /etc/wireguard/wg0.conf
+sudo wg show                            # handshake age, transfer counters
 ```
+
+(The old flannel-over-tailscale deadlock — k3s waiting on `tailscale0`, which
+needed Headscale, which needed k3s — is gone; that is why this link exists.)
 
 ---
 

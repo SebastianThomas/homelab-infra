@@ -33,7 +33,7 @@ GitHub Environment** secrets:
 | `KUBE_CA` | `kubectl -n ci get secret app-deployer-token -o jsonpath='{.data.ca\.crt}'` |
 | `KUBE_TOKEN` | `kubectl -n ci get secret app-deployer-token -o jsonpath='{.data.token}' \| base64 -d` |
 | `HEADSCALE_URL` | `https://headscale.homelab.sthomas.ch` |
-| `TS_AUTHKEY` | reusable+ephemeral headscale pre-auth key (share one across app repos) |
+| `TS_AUTHKEY` | reusable+ephemeral headscale pre-auth key for the **`github`** user (one shared value across homelab-infra + all app repos) |
 | image registry creds | `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`, or use `ghcr.io` + `GITHUB_TOKEN` |
 
 `KUBE_CA` / `KUBE_TOKEN` are the **same value for every app** — extract once.

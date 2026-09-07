@@ -85,11 +85,12 @@
   when: common_load_wireguard | bool
 
 # --- Tailscale --------------------------------------------------------
-# Every node meshes over the tailnet (k3s_flannel_iface = tailscale0). Both the
-# package install and the `tailscale up` that joins Headscale are MANUAL,
-# one-time, per node (needs an interactive key + console/LAN access - see the
-# README "Adding a worker node"). Opt a host into Ansible managing the package
-# with `tailscale_manage_install: true`.
+# The tailnet is the ADMIN plane: your kubectl / SSH, CI runners, MagicDNS, and
+# the nodes' exit-node advertisement. The pod mesh does NOT ride it (see the
+# `wireguard` role). Both the package install and the `tailscale up` that joins
+# Headscale are MANUAL, one-time, per node (needs an interactive key + console /
+# LAN access - see the README "Adding a worker node"). Opt a host into Ansible
+# managing the package with `tailscale_manage_install: true`.
 - name: Ensure Tailscale is installed
   when: tailscale_manage_install | default(false) | bool
   block:
@@ -126,126 +127,33 @@
         enabled: true
         state: started
 
-# --- flannel-over-tailscale plumbing (k3s_flannel_iface = tailscale0) -------
-# k3s rides tailscale0, so the interface must exist before k3s starts, and a lost
-# control connection has to heal on its own (it once stalled ~2.5h). Two guards:
-# wait-tailscale0 (ExecStartPre on k3s / k3s-agent) and a watchdog timer.
-- name: Flannel-over-tailscale guards
-  when: k3s_flannel_iface | default('') == "tailscale0"
-  block:
-    - name: Install the wait-for-tailscale0 helper (k3s/k3s-agent ExecStartPre)
-      ansible.builtin.copy:
-        dest: /usr/local/bin/wait-tailscale0
-        owner: root
-        group: root
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          # Managed by Ansible - roles/common
-          n=0
-          until ip -4 addr show tailscale0 2>/dev/null | grep -q inet; do
-            n=$((n + 1))
-            [ "$n" -ge 90 ] && { echo "tailscale0 has no IPv4 after 90s" >&2; exit 1; }
-            sleep 1
-          done
+# The flannel pod mesh used to ride tailscale0, which needed:
+#   * a wait-tailscale0 gate on k3s (the interface has no address until
+#     tailscaled reaches headscale - which runs in this cluster => deadlock), and
+#   * a watchdog, because k3s restarts churned flannel's routes and wedged
+#     tailscaled's link monitor (once for ~2.5h).
+# Both are gone now that the mesh is a static WireGuard link (roles/wireguard):
+# tailscaled no longer carries pod traffic and k3s no longer waits on it. Older
+# nodes get the leftovers cleaned up here.
+- name: Remove the retired flannel-over-tailscale plumbing
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/wait-tailscale0
+    - /usr/local/bin/tailscaled-watchdog
+    - /etc/systemd/system/tailscaled-watchdog.service
+    - /etc/systemd/system/tailscaled-watchdog.timer
+  register: common_retired_units
 
-    - name: Install the tailscaled watchdog
-      ansible.builtin.copy:
-        dest: /usr/local/bin/tailscaled-watchdog
-        owner: root
-        group: root
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          # Managed by Ansible - roles/common.
-          # Restart tailscaled when it has lost its session with the control server.
-          #
-          # Headscale's node list is authoritative and runs on the control plane,
-          # so ask it there. Self.Online is only a fallback: it can report true
-          # while headscale has already dropped the session.
-          #
-          # A restart drops CI's SSH and remote kubectl, so it is rate limited to
-          # $threshold consecutive bad checks and one restart per $cooldown.
-          # Inconclusive checks exit without touching the counter.
-          set -eu
-
-          state=/run/tailscaled-watchdog.fails        # /run is tmpfs: resets on boot
-          stamp=/run/tailscaled-watchdog.last-restart
-          threshold=3
-          cooldown=1800
-
-          systemctl is-active --quiet tailscaled || exit 0
-          bad=""
-          {% if inventory_hostname in groups['k3s_cp'] %}
-          nodes=$(k3s kubectl -n headscale exec deploy/headscale -- \
-                    headscale nodes list --output json 2>/dev/null) || exit 0
-          online=$(printf '%s' "$nodes" | jq -r --arg me '{{ inventory_hostname }}' \
-                     'map(select(.given_name == $me)) | .[0].online // empty') || exit 0
-          [ -n "$online" ] || exit 0
-          if [ "$online" = "false" ]; then
-            bad="headscale has no session for {{ inventory_hostname }}"
-          fi
-          {% else %}
-          online=$(tailscale status --json 2>/dev/null | jq -r '.Self.Online // empty') || exit 0
-          [ -n "$online" ] || exit 0
-          if [ "$online" = "false" ]; then
-            bad="tailscaled reports itself offline"
-          fi
-          {% endif %}
-
-          if [ -z "$bad" ]; then
-            rm -f "$state"
-            exit 0
-          fi
-
-          fails=$(( $(cat "$state" 2>/dev/null || echo 0) + 1 ))
-          echo "$fails" > "$state"
-          [ "$fails" -ge "$threshold" ] || exit 0
-
-          now=$(date +%s)
-          if [ $(( now - $(cat "$stamp" 2>/dev/null || echo 0) )) -lt "$cooldown" ]; then
-            logger -t tailscaled-watchdog "$bad - in cooldown, not restarting"
-            exit 0
-          fi
-
-          logger -t tailscaled-watchdog "$bad (x$fails) - restarting tailscaled"
-          echo "$now" > "$stamp"
-          rm -f "$state"
-          systemctl restart tailscaled
-
-    - name: Tailscaled watchdog unit + timer
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ item.name }}"
-        owner: root
-        group: root
-        mode: "0644"
-        content: "{{ item.content }}"
-      loop:
-        - name: tailscaled-watchdog.service
-          content: |
-            [Unit]
-            Description=Restart tailscaled if it drops off the control server
-            [Service]
-            Type=oneshot
-            ExecStart=/usr/local/bin/tailscaled-watchdog
-        - name: tailscaled-watchdog.timer
-          content: |
-            [Unit]
-            Description=Run the tailscaled watchdog periodically
-            [Timer]
-            OnBootSec=5min
-            OnUnitActiveSec=5min
-            [Install]
-            WantedBy=timers.target
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Enable the tailscaled watchdog timer
-      ansible.builtin.systemd:
-        name: tailscaled-watchdog.timer
-        enabled: true
-        state: started
-        daemon_reload: true
+- name: Stop the retired tailscaled watchdog timer and reload systemd
+  ansible.builtin.systemd:
+    name: tailscaled-watchdog.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when: common_retired_units is changed
+  failed_when: false
 
 # --- Tailscale exit node (per host: tailscale_exit_node: true) ----------
 # Route tailnet clients' traffic out through this node. Needs the node already

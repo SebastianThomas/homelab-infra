@@ -66,17 +66,16 @@ The pod needs a Headscale pre-auth key in `monitoring/grafana-tailnet-authkey`
 (see [`grafana-tailnet-authkey.example.yaml`](grafana-tailnet-authkey.example.yaml)).
 `deploy` writes it from the `TS_AUTHKEY_GRAFANA` Environment secret; locally,
 create it before applying. Issue it for the **`services`** user, not your own —
-in-cluster nodes are kept in their own headscale user
-([`../headscale/README.md`](../headscale/README.md#users-people-vs-service-nodes)).
+in-cluster service nodes are kept in their own headscale user
+([`../headscale/README.md`](../headscale/README.md#users-one-per-kind-of-node-owner)).
 **Reusable, not ephemeral**: an ephemeral node is deleted from headscale once it
 disconnects.
 
 ```bash
-kubectl -n headscale exec -i deploy/headscale -- headscale users create services
-```
-
-```bash
-kubectl -n headscale exec -i deploy/headscale -- headscale preauthkeys create --user <ID> --reusable --expiration 8760h
+hs() { kubectl -n headscale exec -i deploy/headscale -- headscale "$@"; }
+hs users create services   # once; harmless "already exists" if it's there
+svc=$(hs users list -o json | jq -r '.[]|select(.name=="services").id')
+hs preauthkeys create --user "$svc" --reusable --expiration 8760h
 ```
 
 The key is read **only at first registration**; afterwards the node key on the

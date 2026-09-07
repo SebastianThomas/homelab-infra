@@ -1,0 +1,38 @@
+{{ ansible_managed | comment }}
+# /etc/wireguard/{{ wireguard_iface }}.conf - flannel pod-mesh link.
+# Managed by Ansible (roles/wireguard); manual edits are overwritten.
+#
+# Topology: kube-cp-01 is the hub (public IP, ListenPort). Every other node is a
+# spoke that dials the hub and holds the path open with PersistentKeepalive, so
+# a NAT'd node (the Pi) never needs an inbound port. The hub learns each spoke's
+# address from its keepalive (roaming). Spokes route the whole mesh subnet via
+# the hub, which forwards (ip_forward, set by this role) - so spoke-to-spoke
+# traffic in a 3+ node cluster needs no extra config.
+{% set hub = groups['k3s_cp'][0] %}
+
+[Interface]
+Address = {{ wg_ip }}/{{ wg_pod_mesh_subnet.split('/')[1] }}
+PrivateKey = {{ vault_wg_private_keys[inventory_hostname] }}
+MTU = {{ wg_mtu }}
+{% if inventory_hostname == hub %}
+ListenPort = {{ wg_listen_port }}
+{% endif %}
+{% if inventory_hostname == hub %}
+{% for host in groups['k3s_workers'] | default([]) | sort %}
+{% if hostvars[host].wg_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$') %}
+
+[Peer]
+# {{ host }}
+PublicKey = {{ hostvars[host].wg_public_key }}
+AllowedIPs = {{ hostvars[host].wg_ip }}/32
+{% endif %}
+{% endfor %}
+{% else %}
+
+[Peer]
+# {{ hub }} (hub - all mesh traffic goes here)
+PublicKey = {{ hostvars[hub].wg_public_key }}
+AllowedIPs = {{ wg_pod_mesh_subnet }}
+Endpoint = {{ hostvars[hub].ansible_host }}:{{ wg_listen_port }}
+PersistentKeepalive = {{ wg_keepalive }}
+{% endif %}

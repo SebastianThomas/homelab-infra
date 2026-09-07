@@ -2,8 +2,9 @@
 # /etc/rancher/k3s/config.yaml - K3s agent. Manual edits are overwritten.
 
 token: "{{ vault_k3s_token }}"
-# Joined over the tailnet - kube-cp-01's public :6443 is firewalled.
-server: "https://{{ k3s_cp_tailscale_ip }}:{{ k3s_api_port }}"
+# Joined over the WireGuard pod-mesh link - kube-cp-01's public :6443 is
+# firewalled, and the mesh has no control-server dependency to deadlock on.
+server: "https://{{ k3s_cp_wg_ip }}:{{ k3s_api_port }}"
 
 # Pin the node name - the OS hostname on a fresh Pi is whatever the image
 # shipped (e.g. "pi4"), and cloud-init can reset it on reboot.
@@ -21,14 +22,13 @@ node-taint:
 {% endfor %}
 {% endif %}
 {% if node_ip | default('') %}
-# The tailnet address, so the apiserver can reach this kubelet (logs / exec /
-# port-forward) - the node's real NIC is a private LAN / VPN address.
+# This node's wg0 address, so the apiserver can reach the kubelet (logs / exec /
+# port-forward) over the pod mesh - its real NIC is a private LAN / VPN address.
 node-ip: "{{ node_ip }}"
 {% endif %}
 {% if k3s_flannel_iface %}
-# Pod mesh over the tailnet - must match the server (endpoint = this node's
-# 100.64.x.x, MTU from tailscale0). A systemd drop-in orders k3s-agent After=
-# tailscaled so the interface exists at start.
+# Pod mesh over the WireGuard link - must match the server (VXLAN endpoint =
+# this node's wg_ip). A drop-in orders k3s-agent After=wg-quick@{{ k3s_flannel_iface }}.
 flannel-iface: "{{ k3s_flannel_iface }}"
 {% endif %}
 {% if k3s_resolv_conf_manage | bool %}

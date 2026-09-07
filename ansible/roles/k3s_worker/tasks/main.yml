@@ -1,23 +1,25 @@
 ---
-- name: Require the node to be on the tailnet already
+- name: Require the WireGuard pod-mesh link to be up
   ansible.builtin.assert:
     that:
-      - "'tailscale0' in ansible_facts.interfaces"
-      - k3s_cp_tailscale_ip | length > 0
+      - k3s_flannel_iface in ansible_facts.interfaces
+      - k3s_cp_wg_ip | length > 0
     fail_msg: >-
-      This node joins over the Headscale tailnet but has no tailscale0 interface.
-      Run `tailscale up --login-server={{ k3s_headscale_url }} --authkey=<key>`
-      on it first (one-time, manual). See README "Adding a worker node".
-    success_msg: "On the tailnet - proceeding with the agent install."
+      This node joins the cluster over the {{ k3s_flannel_iface }} pod-mesh link,
+      but that interface is missing. The `wireguard` role should have created it -
+      check `systemctl status wg-quick@{{ k3s_flannel_iface }}` and `wg show` on
+      the node. See README "Adding a worker node".
+    success_msg: "Pod-mesh link {{ k3s_flannel_iface }} is up - proceeding with the agent install."
+  when: k3s_flannel_iface | length > 0
 
-- name: Require node_ip (this node's tailnet address) to be set in the inventory
+- name: Require node_ip (this node's wg0 address) to be set in the inventory
   ansible.builtin.assert:
     that:
       - node_ip | default('') | length > 0
     fail_msg: >-
       Set `node_ip:` for {{ inventory_hostname }} in inventory/hosts.yml to its
-      tailnet IP (`tailscale ip -4` on the node) so the apiserver can reach the
-      kubelet for `kubectl logs` / `exec`.
+      wg0 address (same as wg_ip) so the apiserver can reach the kubelet for
+      `kubectl logs` / `exec`.
     success_msg: "node_ip = {{ node_ip }}"
 
 # --- Raspberry Pi / Ubuntu prerequisites the kubelet needs -----------------
@@ -96,20 +98,32 @@
     group: root
     mode: "0755"
 
-- name: Gate k3s-agent on the tailscale0 interface (flannel-iface rides it)
+- name: Order k3s-agent after the pod-mesh interface (flannel-iface rides it)
   ansible.builtin.copy:
-    dest: /etc/systemd/system/k3s-agent.service.d/20-tailscale.conf
+    dest: /etc/systemd/system/k3s-agent.service.d/20-podmesh.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      # Managed by Ansible - roles/k3s_worker. flannel-iface = tailscale0.
+      # Managed by Ansible - roles/k3s_worker. flannel-iface = {{ k3s_flannel_iface }};
+      # wg-quick@{{ k3s_flannel_iface }} (oneshot) brings it up before the agent.
       [Unit]
-      After=tailscaled.service
-      Wants=tailscaled.service
-      [Service]
-      ExecStartPre=/usr/local/bin/wait-tailscale0
-  when: k3s_flannel_iface == "tailscale0"
+      After=wg-quick@{{ k3s_flannel_iface }}.service
+      Wants=wg-quick@{{ k3s_flannel_iface }}.service
+  when: k3s_flannel_iface | length > 0
+  notify: Restart k3s-agent
+
+- name: Remove the retired flannel-over-tailscale k3s-agent drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s-agent.service.d/20-tailscale.conf
+    state: absent
+  notify: Restart k3s-agent
+
+- name: Remove the pod-mesh k3s-agent drop-in when flannel-iface is unset
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s-agent.service.d/20-podmesh.conf
+    state: absent
+  when: k3s_flannel_iface | length == 0
   notify: Restart k3s-agent
 
 # The kubelet client cert is issued for `system:node:<name>`. If the agent first
@@ -188,17 +202,9 @@
   delay: 10
   changed_when: false
 
-# The agent (re)start churns flannel's routes - bounce tailscaled so its link
-# monitor re-reads a now-stable table (see roles/common notes).
-- name: Re-evaluate tailscaled after the agent restart
-  ansible.builtin.systemd:
-    name: tailscaled
-    state: restarted
-  when: k3s_flannel_iface == "tailscale0"
-
 # Keep this a literal block: a folded (>-) scalar keeps the newlines of
 # more-indented lines and silently splits the pipeline.
-- name: Drop stale node objects for this host (old name, same tailnet IP)
+- name: Drop stale node objects for this host (old name, same wg0 IP)
   ansible.builtin.shell:
     executable: /bin/bash
     cmd: |
@@ -212,7 +218,7 @@
   register: k3s_worker_stale
   changed_when: "'deleted' in k3s_worker_stale.stdout"
 
-- name: Give the login user a kubeconfig (API over the tailnet)
+- name: Give the login user a kubeconfig (API over the pod mesh)
   when:
     - k3s_worker_user_kubeconfig | bool
     - ansible_user != "root"
@@ -237,7 +243,7 @@
         group: "{{ ansible_user }}"
         mode: "0700"
 
-    - name: Install ~/.kube/config pointing at the CP's tailnet address
+    - name: Install ~/.kube/config pointing at the CP over the pod mesh
       ansible.builtin.copy:
         dest: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.kube/config"
         owner: "{{ ansible_user }}"
@@ -246,4 +252,4 @@
         content: >-
           {{ k3s_worker_cp_kubeconfig.content | b64decode
              | replace('https://127.0.0.1:6443',
-                       'https://' ~ k3s_cp_tailscale_ip ~ ':' ~ k3s_api_port) }}
+                       'https://' ~ k3s_cp_wg_ip ~ ':' ~ k3s_api_port) }}

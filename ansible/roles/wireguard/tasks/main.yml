@@ -1,0 +1,73 @@
+---
+# wg0 - the dedicated WireGuard link the flannel pod mesh rides on. It replaces
+# flannel-over-tailscale: tailscale0 could not be addressed until tailscaled
+# reached headscale, and headscale runs in this cluster, so gating k3s on it
+# deadlocked every kube-cp-01 boot. wg0 is a static kernel interface, up before
+# k3s with nothing to wait for.
+
+- name: Configure the wg0 pod-mesh link
+  when: k3s_flannel_iface == wireguard_iface
+  block:
+    - name: Assert this node has a valid pod-mesh identity
+      ansible.builtin.assert:
+        that:
+          - wg_ip | default('') | length > 0
+          - wg_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$')
+          - inventory_hostname in (vault_wg_private_keys | default({}, true))
+          - (vault_wg_private_keys | default({}, true))[inventory_hostname] | default('') | length > 0
+        fail_msg: >-
+          {{ inventory_hostname }} rides the WireGuard pod mesh
+          (k3s_flannel_iface = {{ wireguard_iface }}) but is missing wg_ip, a
+          real wg_public_key (inventory/hosts.yml), or a private key
+          (vault_wg_private_keys). See the README "Adding a worker node".
+        success_msg: "Pod-mesh identity {{ wg_ip }} present."
+
+    # The `wireguard` kernel module is loaded by the `common` role
+    # (common_load_wireguard), which runs first.
+    - name: Install wireguard-tools
+      ansible.builtin.apt:
+        name: "{{ wireguard_packages }}"
+        state: present
+
+    - name: Enable IPv4 forwarding on the hub (spoke-to-spoke pod traffic)
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_file: /etc/sysctl.d/99-wireguard-mesh.conf
+        sysctl_set: true
+        reload: true
+      when: inventory_hostname == groups['k3s_cp'][0]
+
+    - name: Write the wg0 config
+      ansible.builtin.template:
+        src: wg.conf.j2
+        dest: "/etc/wireguard/{{ wireguard_iface }}.conf"
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart wg-quick
+
+    - name: Enable and start the wg0 link
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ wireguard_iface }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Bring the config change into effect before k3s wants the interface
+      ansible.builtin.meta: flush_handlers
+
+- name: Tear down the wg0 link when the pod mesh is off
+  when: k3s_flannel_iface != wireguard_iface
+  block:
+    - name: Stop and disable the wg0 link
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ wireguard_iface }}"
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Remove the wg0 config
+      ansible.builtin.file:
+        path: "/etc/wireguard/{{ wireguard_iface }}.conf"
+        state: absent

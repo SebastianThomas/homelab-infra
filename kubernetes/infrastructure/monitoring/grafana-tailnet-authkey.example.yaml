@@ -3,7 +3,8 @@
 # TS_AUTHKEY_GRAFANA Environment secret, or you create it by hand:
 #
 #   hs() { kubectl -n headscale exec -i deploy/headscale -- headscale "$@"; }
-#   hs preauthkeys create --user <ID> --reusable --expiration 8760h
+#   svc=$(hs users list -o json | jq -r '.[]|select(.name=="services").id')
+#   hs preauthkeys create --user "$svc" --reusable --expiration 8760h
 #
 #   kubectl -n monitoring create secret generic grafana-tailnet-authkey \
 #     --from-literal=authkey="<the key>"

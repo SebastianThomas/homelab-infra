@@ -1,0 +1,10 @@
+---
+# Point-to-point WireGuard interface carrying the flannel pod mesh between
+# cluster nodes. Real values come from group_vars/all/main.yml (wg_*) and the
+# per-host wg_ip / wg_public_key in inventory/hosts.yml; private keys are in the
+# vault (vault_wg_private_keys[<inventory_hostname>]).
+#
+# The role is a no-op unless k3s_flannel_iface names this interface.
+wireguard_iface: wg0
+wireguard_packages:
+  - wireguard-tools

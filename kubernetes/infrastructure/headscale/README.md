@@ -60,33 +60,47 @@ hs nodes list
 hs routes list
 ```
 
-## Users: people vs. service nodes
+## Users: one per kind of node owner
 
-Nodes belong to a headscale **user**, and they are cheap — keep the two kinds
-apart so `headscale nodes list` stays readable and a future ACL has something to
+Nodes belong to a headscale **user**, and they are cheap. One user per *kind* of
+owner keeps `headscale nodes list` readable and gives a future ACL something to
 target:
 
-| User | Nodes |
-|---|---|
-| `<you>` (e.g. `sebas`) | your laptop, the K3s nodes, CI runners |
-| `services` | in-cluster workloads that are their own tailnet node — Grafana (`grafana`), and whatever comes next |
+| User | Nodes | Registered by |
+|---|---|---|
+| `sebas` (you) | personal devices — your laptop | `tailscale login` by hand |
+| `infra` | the K3s host nodes — `kube-cp-01`, `kube-worker-01`, any future node | `tailscale up` by hand on the node (README → *Adding a worker node*) |
+| `services` | in-cluster workloads that are their own tailnet node — Grafana (`grafana`), and whatever comes next | pre-auth key baked into the pod (e.g. `TS_AUTHKEY_GRAFANA`) |
+| `github` | GitHub Actions runners — one ephemeral node per CI run, from **homelab-infra and every app repo** | `TS_AUTHKEY` in the run's environment (`setup-ssh` here, `homelab-actions/headscale-connect` in app repos) |
 
 ```bash
+hs users create infra
 hs users create services
+hs users create github
 hs users list                 # the numeric ID is what preauthkeys wants
 ```
 
 > **This is organisation, not isolation.** With no policy in the database
 > (`policy.mode: database`, nothing loaded) headscale lets every node reach
 > every other node, whoever owns it. Separate users only start *restricting*
-> anything once you write an ACL — e.g. allow `group:admins` → the `services`
-> user's nodes on `:443` and nothing else. Until then, treat the split as
-> bookkeeping that makes that ACL possible later.
+> anything once you write an ACL — e.g. allow `sebas` + `github` → `infra` on
+> `:22`/`:6443`, `sebas` + `infra` → `services` on `:443`, and nothing else.
+> Until then, treat the split as bookkeeping that makes that ACL possible later.
 
 MagicDNS is unaffected: names are flat (`<node>.ts.homelab.sthomas.ch`), not
-per-user, so moving a node between users does not change its name — but node
-names stay unique cluster-wide, so a second node called `grafana` becomes
-`grafana-1`.
+per-user, so a node keeps its name if it is re-registered under another user —
+but node names stay unique cluster-wide, so a second live node called `grafana`
+becomes `grafana-1`.
+
+### Moving an existing node to another user
+
+Headscale v0.29 has **no `nodes move`** — reassigning an already-registered node
+means delete its record, then re-register it (fresh `tailscale up` with a
+pre-auth key for the new user). Ephemeral CI nodes need nothing (the next run
+re-creates them under whatever user `TS_AUTHKEY` now belongs to); a persistent
+node (a K3s host) has a short admin-plane blip while it re-registers — `wg0`
+carries the cluster itself, so nothing cluster-critical notices. Full procedure
+for the K3s nodes: [`docs/headscale-user-split.md`](../../../docs/headscale-user-split.md).
 
 ## Creating a pre-auth key
 
@@ -105,25 +119,26 @@ registration time.
 > runs fail at "Join the Headscale tailnet" with nothing in the headscale log.
 > Fix: create a fresh key, update `TS_AUTHKEY` everywhere (below), re-run.
 
-| Use | Command |
-|---|---|
-| **A device you register once** (your laptop, the VPS on the tailnet) | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
-| **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 8760h` |
-| **A K3s worker node** — registered once by hand (`tailscale up`), then persists | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` |
-| **An in-cluster service node** (`services` user; Grafana's `TS_AUTHKEY_GRAFANA`) | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` — **never** `--ephemeral`: the pod is long-lived and an ephemeral node is deleted the moment it disconnects |
+| Use | User | Command |
+|---|---|---|
+| **A device you register once** (your laptop) | `sebas` | `hs preauthkeys create --user <ID> --reusable --expiration 24h` — short is fine, the node persists |
+| **CI runners** (`TS_AUTHKEY`) — new ephemeral machine every run | `github` | `hs preauthkeys create --user <ID> --reusable --ephemeral --expiration 8760h` |
+| **A K3s host node** (`kube-cp-01`, a worker) — registered once by hand (`tailscale up`), then persists | `infra` | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` |
+| **An in-cluster service node** (Grafana's `TS_AUTHKEY_GRAFANA`) | `services` | `hs preauthkeys create --user <ID> --reusable --expiration 8760h` — **never** `--ephemeral`: the pod is long-lived and an ephemeral node is deleted the moment it disconnects |
 
 `--ephemeral` = the node is removed from headscale as soon as it disconnects
 (the CI action runs `tailscale logout` on exit), so runner nodes never pile up.
 
-`TS_AUTHKEY` lives as a **per-repo** secret in homelab-infra *and every app
-repo* (they run `headscale-connect`). Rotating it means updating all of them —
-or promote it to an org-level secret so it's one place.
+`TS_AUTHKEY` (the `github`-user key) is a **per-repo** secret in homelab-infra
+*and every app repo* (they run `homelab-actions/headscale-connect`) — a personal
+GitHub account has no org-level secrets, so rotating it means updating each repo.
+Promote it to an org secret if these repos ever move under an org.
 
-One-liner (needs `jq` locally):
+One-liner (needs `jq` locally) — resolve the user name to its ID, then issue:
 
 ```bash
-hs_uid=$(kubectl -n headscale exec deploy/headscale -- headscale users list -o json | jq -r '.[]|select(.name=="alice").id')
-kubectl -n headscale exec deploy/headscale -- headscale preauthkeys create --user "$hs_uid" --reusable --expiration 24h
+hs_uid=$(kubectl -n headscale exec deploy/headscale -- headscale users list -o json | jq -r '.[]|select(.name=="github").id')
+kubectl -n headscale exec deploy/headscale -- headscale preauthkeys create --user "$hs_uid" --reusable --ephemeral --expiration 8760h
 ```
 
 List / expire keys:

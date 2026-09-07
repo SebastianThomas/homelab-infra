@@ -52,29 +52,34 @@
       StartLimitBurst=5
   notify: Restart k3s
 
-- name: Gate k3s on the tailscale0 interface (flannel-iface rides it)
+- name: Order k3s after the pod-mesh interface (flannel-iface rides it)
   ansible.builtin.copy:
-    dest: /etc/systemd/system/k3s.service.d/20-tailscale.conf
+    dest: /etc/systemd/system/k3s.service.d/20-podmesh.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      # Managed by Ansible - roles/k3s_cp. flannel-iface = tailscale0, so k3s
-      # can't come up until tailscaled has the interface addressed. Wait up to
-      # 90s; the 10-startlimit drop-in then bounds the retries.
+      # Managed by Ansible - roles/k3s_cp. flannel-iface = {{ k3s_flannel_iface }};
+      # wg-quick@{{ k3s_flannel_iface }} (oneshot) brings it up before k3s. No
+      # wait loop - wg0 is a static kernel interface, not a tunnel that must
+      # reach a control server first (that was the flannel-over-tailscale deadlock).
       [Unit]
-      After=tailscaled.service
-      Wants=tailscaled.service
-      [Service]
-      ExecStartPre=/usr/local/bin/wait-tailscale0
-  when: k3s_flannel_iface == "tailscale0"
+      After=wg-quick@{{ k3s_flannel_iface }}.service
+      Wants=wg-quick@{{ k3s_flannel_iface }}.service
+  when: k3s_flannel_iface | length > 0
   notify: Restart k3s
 
-- name: Remove the tailscale ordering drop-in when the mesh is off
+- name: Remove the retired flannel-over-tailscale k3s drop-in
   ansible.builtin.file:
     path: /etc/systemd/system/k3s.service.d/20-tailscale.conf
     state: absent
-  when: k3s_flannel_iface != "tailscale0"
+  notify: Restart k3s
+
+- name: Remove the pod-mesh k3s drop-in on a single-node cluster
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d/20-podmesh.conf
+    state: absent
+  when: k3s_flannel_iface | length == 0
   notify: Restart k3s
 
 - name: Download the K3s install script
@@ -118,15 +123,6 @@
   retries: 30
   delay: 10
   changed_when: false
-
-# The k3s (re)start churns flannel's routes; bounce tailscaled so its link
-# monitor re-reads a now-stable table instead of staying wedged on a stale
-# (pod-address) gateway. Cheap (~5s), and provision is infrequent.
-- name: Re-evaluate tailscaled after the k3s restart
-  ansible.builtin.systemd:
-    name: tailscaled
-    state: restarted
-  when: k3s_flannel_iface == "tailscale0"
 
 - name: Give the login user a kubeconfig (~/.kube/config on the node)
   when:

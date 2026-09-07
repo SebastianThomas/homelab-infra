@@ -25,12 +25,12 @@
   loop_control:
     label: "delete {{ item.port }}/{{ item.proto }} from {{ item.from | default('any') }}"
 
-- name: Trust the Tailscale interface
+- name: Trust the encrypted mesh interfaces (tailnet + pod mesh)
   community.general.ufw:
     rule: allow
     direction: in
-    interface: "{{ firewall_tailnet_iface }}"
-  when: firewall_tailnet_iface | length > 0
+    interface: "{{ item }}"
+  loop: "{{ firewall_trusted_ifaces | default([]) }}"
 
 - name: Allow configured ports
   community.general.ufw:

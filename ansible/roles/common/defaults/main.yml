@@ -12,6 +12,6 @@ common_disable_swap: true
 # each other by name.
 common_manage_etc_hosts: true
 
-# Load the wireguard kernel module (needed by the Tailscale substrate / K3s
-# wireguard flannel backend). Harmless if unused.
+# Load the wireguard kernel module - the wg0 pod-mesh link (roles/wireguard)
+# needs it. Harmless if unused.
 common_load_wireguard: true

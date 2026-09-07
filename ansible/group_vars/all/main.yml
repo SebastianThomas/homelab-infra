@@ -36,6 +36,10 @@ homelab_label_domain: "homelab.sthomas.ch"
 # The Kubernetes API is reachable only over the tailnet (public :6443 is
 # firewalled off). Fetched kubeconfigs point here. For a first-ever bootstrap
 # (no tailnet yet) comment this out so it falls back to the public name.
+#
+# This is ADMIN-plane access only (your kubectl, CI runners). It is NOT how the
+# worker joins the cluster - that rides the WireGuard pod-mesh link (see below),
+# so a headscale outage never stops the cluster from forming.
 k3s_cp_kubeconfig_server: "https://kube-cp-01.ts.{{ cluster_domain }}:6443"
 
 # K3s install script - shared by the k3s_cp and k3s_worker roles.
@@ -57,24 +61,42 @@ common_disable_swap: true
 # --- Firewall (firewall role, VPS only) ------------------------------
 firewall_enabled: true
 
-# --- Multi-node: pod mesh over the Headscale tailnet -----------------------
-# The Pi worker is behind NAT, so the nodes can only reach each other over the
-# tailnet. Every node runs a standalone tailscaled and must be on the tailnet
-# before its first `provision` - `tailscale up` is a manual, one-time step per
-# node. See README "Adding a worker node".
+# --- Multi-node: pod mesh over a dedicated WireGuard link -----------------
+# The Pi worker is behind NAT, so the nodes cannot reach each other on a LAN.
+# A plain point-to-point WireGuard interface (`wg0`, the `wireguard` role)
+# carries the pod mesh: kube-cp-01 is the hub (public IP, listens), the Pi is a
+# spoke that dials out and holds the tunnel open with a keepalive.
+#
+# Why not ride the Headscale tailnet (as this once did): headscale runs as a
+# Pod *in this cluster*, and tailscaled cannot address tailscale0 until it
+# reaches its control server - so gating k3s on tailscale0 deadlocked every
+# kube-cp-01 boot (k3s waits for tailscale0 -> needs headscale -> needs k3s).
+# `wg0` is a static kernel interface: it is up before k3s with nothing to wait
+# for. The tailnet is now admin-plane only (kubectl, CI, SSH, the Pi exit node,
+# MagicDNS, the Grafana tailnet node).
 
-# flannel's host interface. "tailscale0" puts the VXLAN endpoints on the nodes'
-# 100.64.x.x addresses with one cluster-wide MTU; "" uses the default-route
-# iface (single-node only). Side effect: kube-cp-01's InternalIP becomes its
-# tailnet address - ingress is unaffected, klipper binds hostPorts on every
-# address. k3s waits for the interface via wait-tailscale0 + After=tailscaled.
-k3s_flannel_iface: "tailscale0"
+# flannel's host interface. "wg0" puts the VXLAN endpoints on the nodes'
+# pod-mesh addresses (wg_ip, below); "" uses the default-route iface
+# (single-node only, no worker). k3s is ordered After=wg-quick@wg0.
+k3s_flannel_iface: "wg0"
 
-# Headscale control server the nodes' Tailscale authenticates against.
+# The WireGuard pod-mesh link (the `wireguard` role builds /etc/wireguard/wg0.conf).
+wg_pod_mesh_subnet: "10.10.0.0/24"   # tunnel-only; must not clash with a node LAN
+wg_listen_port: 51820                # UDP, opened on the hub's public firewall
+wg_keepalive: 25                     # seconds; spokes -> hub, to punch out through NAT
+wg_mtu: 1280                         # safe floor through the Pi's NAT + OpenVPN
+
+# kube-cp-01's pod-mesh (wg0) IP - the address the worker sets as its K3s
+# `server:` (https://<ip>:{{ k3s_api_port }}) and a SAN on the API cert. Per-node
+# wg0 IPs (incl. this one) are `wg_ip` in inventory/hosts.yml.
+k3s_cp_wg_ip: "10.10.0.1"
+
+# Headscale control server the nodes' Tailscale authenticates against (admin
+# plane: your `tailscale up`, CI runners, the Pi's exit-node advertisement).
 k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
 
-# kube-cp-01's tailnet IP - the address workers set as their K3s `server:`
-# (https://<ip>:{{ k3s_api_port }}) and a SAN on the API cert.
+# kube-cp-01's tailnet IP - a SAN on the API cert and where fetched kubeconfigs
+# point, so `kubectl` works over the tailnet. Not used by the worker's join.
 k3s_cp_tailscale_ip: "100.64.0.2"
 
 # Per-host (inventory): `tailscale_exit_node: true` advertises that node as a
@@ -85,5 +107,7 @@ k3s_cp_tailscale_ip: "100.64.0.2"
 # Exit traffic egresses from that node's own connection / counts against it.
 
 # vault_k3s_token -> cluster join secret (server + agents share it; always required).
+# vault_wg_private_keys -> { <inventory_hostname>: <wg genkey output> } for every
+#   node on the pod mesh. Public keys are non-secret and live in inventory/hosts.yml.
 # The Headscale pre-auth key is used by hand in `tailscale up` on each node,
 # not by Ansible - see the README.

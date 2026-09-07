@@ -46,11 +46,17 @@ jobs:
 
       - name: Materialize Ansible secrets
         working-directory: ansible
+        env:
+          K3S_TOKEN: ${{ secrets.K3S_TOKEN }}
+          WG_PRIVATE_KEYS: ${{ secrets.WG_PRIVATE_KEYS }}
         run: |
           umask 077
-          cat > group_vars/all/vault.yml <<EOF
-          vault_k3s_token: "${{ secrets.K3S_TOKEN }}"
-          EOF
+          {
+            printf 'vault_k3s_token: "%s"\n' "$K3S_TOKEN"
+            if [ -n "$WG_PRIVATE_KEYS" ]; then
+              printf 'vault_wg_private_keys: %s\n' "$WG_PRIVATE_KEYS"
+            fi
+          } > group_vars/all/vault.yml
 
       - name: ansible-playbook site.yml
         working-directory: ansible

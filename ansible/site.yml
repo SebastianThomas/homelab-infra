@@ -2,9 +2,11 @@
 # Entry point:  ansible-playbook site.yml
 #
 # Play order matters:
-#   1. common (+ firewall on servers) - base OS config, every host
-#   2. k3s_cp     - install / upgrade the K3s server (SQLite datastore)
-#   3. k3s_workers - install K3s agents and join them (skipped while empty)
+#   1. common      - base OS config, every host
+#   2. wireguard   - the wg0 pod-mesh link (cluster nodes); up before k3s
+#   3. firewall    - host firewall on servers / public nodes
+#   4. k3s_cp      - install / upgrade the K3s server (SQLite datastore)
+#   5. k3s_workers - install K3s agents and join them (skipped while empty)
 
 - name: Base host configuration
   hosts: all
@@ -12,6 +14,13 @@
   gather_facts: true
   roles:
     - common
+
+- name: WireGuard pod-mesh link (cluster nodes)
+  hosts: k3s_cp:k3s_workers
+  become: true
+  gather_facts: true
+  roles:
+    - wireguard
 
 - name: Host firewall (K3s servers / public nodes)
   hosts: k3s_cp

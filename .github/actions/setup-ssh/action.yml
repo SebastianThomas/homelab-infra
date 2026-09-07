@@ -14,8 +14,9 @@ inputs:
     default: ""
   tailscale-authkey:
     description: >
-      Headscale pre-auth key for the runner - reusable + ephemeral, modest expiry:
-        headscale preauthkeys create --user <id> --reusable --ephemeral --expiration 8760h
+      Headscale pre-auth key for the runner - the `github` user, reusable +
+      ephemeral, modest expiry:
+        headscale preauthkeys create --user <github-id> --reusable --ephemeral --expiration 8760h
       (not 100y - a headscale upgrade can reject far-future keys.)
       Empty = skip the tailnet (public SSH / public API).
     required: false

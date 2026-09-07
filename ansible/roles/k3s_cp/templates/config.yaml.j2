@@ -26,9 +26,13 @@ tls-san:
   - "{{ san }}"
 {% endfor %}
 {% if k3s_cp_tailscale_ip %}
-  # Tailnet: MagicDNS name + IP so clients/CI/agents reach the API over the tailnet.
+  # Tailnet: MagicDNS name + IP so your kubectl / CI reach the API over the tailnet.
   - "{{ inventory_hostname }}.ts.{{ cluster_domain }}"
   - "{{ k3s_cp_tailscale_ip }}"
+{% endif %}
+{% if k3s_flannel_iface == "wg0" and k3s_cp_wg_ip %}
+  # Pod-mesh (wg0): the address the worker uses as its `server:`.
+  - "{{ k3s_cp_wg_ip }}"
 {% endif %}
 
 kubelet-arg:
@@ -46,7 +50,9 @@ kube-apiserver-arg:
 {% endif %}
 {% if k3s_flannel_iface %}
 
-# Pod mesh over the tailnet. Also makes this node's InternalIP its tailnet
-# address; ingress is unaffected (klipper binds hostPorts on every address).
+# Pod mesh: flannel's VXLAN endpoints ride this interface (flannel advertises its
+# address as this node's public-ip). wg0 is the dedicated WireGuard link to the
+# worker (roles/wireguard), up before k3s via After=wg-quick@wg0. flannel-iface
+# is CNI-only - the node's InternalIP and klipper's :80/:443 are unaffected.
 flannel-iface: "{{ k3s_flannel_iface }}"
 {% endif %}
