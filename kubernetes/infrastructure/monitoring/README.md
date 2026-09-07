@@ -54,7 +54,7 @@ Three dead ends, each fatal on its own — the reasoning is in
    arrive from the same IP.
 3. **A listener bound to the tailnet IP cannot be built here.** The Traefik
    chart threads `ports.*.hostIP` into the entrypoint's *bind* address (it ends
-   up on the pod's loopback), and a `hostPort` on `100.64.0.2:443` is
+   up on the pod's loopback), and a `hostPort` on `100.64.0.14:443` is
    unschedulable regardless — klipper's svclb already holds `0.0.0.0:443`, which
    the scheduler counts as a conflict with every IP on that port.
 

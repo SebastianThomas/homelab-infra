@@ -314,10 +314,10 @@ Ansible never deploys anything under `kubernetes/`.
 ## Private API access over Tailscale
 
 `kube-cp-01` runs a standalone `tailscaled` on the Headscale tailnet
-(`100.64.0.2`, the `infra` user), so `kubectl` — yours and CI's — reaches the
+(`100.64.0.14`, the `infra` user), so `kubectl` — yours and CI's — reaches the
 API by its MagicDNS name and public `:6443` is firewalled off:
 
-- API cert carries `kube-cp-01.ts.homelab.sthomas.ch` + `100.64.0.2` (Ansible,
+- API cert carries `kube-cp-01.ts.homelab.sthomas.ch` + `100.64.0.14` (Ansible,
   from `k3s_cp_tailscale_ip`) **and** the pod-mesh IP `10.10.0.1` (the worker's
   `server:`).
 - `KUBE_API` / `SSH_HOST` secrets point at the MagicDNS name; CI runners join

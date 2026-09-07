@@ -97,7 +97,9 @@ k3s_headscale_url: "https://headscale.{{ cluster_domain }}"
 
 # kube-cp-01's tailnet IP - a SAN on the API cert and where fetched kubeconfigs
 # point, so `kubectl` works over the tailnet. Not used by the worker's join.
-k3s_cp_tailscale_ip: "100.64.0.2"
+# Headscale assigns this at registration; update it here and re-run `provision`
+# (limit: k3s_cp) if the node is ever re-registered and lands on a new address.
+k3s_cp_tailscale_ip: "100.64.0.14"
 
 # Per-host (inventory): `tailscale_exit_node: true` advertises that node as a
 # Tailscale exit node (IP forwarding on + `tailscale set --advertise-exit-node`).

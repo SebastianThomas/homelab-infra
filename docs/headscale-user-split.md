@@ -68,7 +68,7 @@ registers under `github`.
 ssh sebas@homelab.sthomas.ch sudo tailscale debug prefs
 #    -> Hostname, CorpDNS (false == the node was brought up --accept-dns=false),
 #       AdvertiseRoutes (contains 0.0.0.0/0 == it advertises the exit node)
-hs nodes list        # note kube-cp-01's node ID and its tailnet IP (expect 100.64.0.2)
+hs nodes list        # note kube-cp-01's node ID and its tailnet IP (100.64.0.14 as of the last run)
 
 # b. on the node: drop the current session, then delete the stale record
 ssh sebas@homelab.sthomas.ch sudo tailscale logout
@@ -88,12 +88,11 @@ hs nodes approve-routes -i <new-cp-node-id> -r 0.0.0.0/0,::/0
 
 Step 4 runs over **public** SSH, so `tailscale logout` does not drop your shell.
 
-**Check the tailnet IP** in the `hs nodes list` output. Sequential allocation
-almost always hands `100.64.0.2` straight back (the delete frees it, and the CP
-re-registers before the worker).
-
-If it is **not** `100.64.0.2`, the API-server cert SAN is stale — kubectl over
-the MagicDNS name still validates (that SAN is unchanged), but fix the drift:
+**Check the tailnet IP** in the `hs nodes list` output. A re-registered node does
+**not** get its old address back — headscale allocates the next free one
+(kube-cp-01 is `100.64.0.14` after the last re-registration). The API-server cert
+SAN is then stale; kubectl over the MagicDNS name still validates (that SAN is
+unchanged), but fix the drift:
 
 1. `ansible/group_vars/all/main.yml` → `k3s_cp_tailscale_ip: "<new IP>"`, commit.
 2. Run **`provision`** with `limit: k3s_cp` — re-renders `/etc/rancher/k3s/config.yaml`

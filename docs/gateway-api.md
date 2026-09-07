@@ -112,9 +112,9 @@ Three Traefik-side approaches look easier and all of them fail:
 |---|---|
 | An `HTTPRoute` on a tailnet-only hostname | Obscurity only. Traefik terminates :443 on the public IP and matches on `Host`; anyone who knows the name reaches it. The name is not even secret — Let's Encrypt publishes every issued name to the CT logs. |
 | A source-IP allowlist (`ipAllowList` middleware) | Traefik cannot tell the two apart. K3s's klipper (ServiceLB) SNATs every client to the node CNI address before the request reaches Traefik, so tailnet and public traffic share one source IP. |
-| A listener bound to the node's tailnet IP | Two independent blockers: the Traefik chart threads `ports.*.hostIP` into the entrypoint's **bind** address (Traefik would listen on the pod's loopback and nothing reaches it), and a `hostPort` on `100.64.0.2:443` is unschedulable anyway — klipper's svclb holds `0.0.0.0:443`, which the scheduler treats as conflicting with every IP on that port. |
+| A listener bound to the node's tailnet IP | Two independent blockers: the Traefik chart threads `ports.*.hostIP` into the entrypoint's **bind** address (Traefik would listen on the pod's loopback and nothing reaches it), and a `hostPort` on `100.64.0.14:443` is unschedulable anyway — klipper's svclb holds `0.0.0.0:443`, which the scheduler treats as conflicting with every IP on that port. |
 
 The node's own tailnet IP is not a way out of this: klipper's DNAT for `:443`
 matches on port regardless of destination address, so even a host process bound
-to `100.64.0.2:443` never sees the packets. A separate tailnet IP — one per
+to `100.64.0.14:443` never sees the packets. A separate tailnet IP — one per
 workload — is what makes the split real.

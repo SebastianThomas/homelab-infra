@@ -13,7 +13,7 @@
 #      client to the node CNI address before Traefik sees it.
 #   3. Binding a listener to the tailnet IP fails twice over: the Traefik chart
 #      threads `ports.*.hostIP` into the entrypoint's *bind* address (it would
-#      listen on the pod's loopback), and a hostPort on 100.64.0.2:443 is
+#      listen on the pod's loopback), and a hostPort on 100.64.0.14:443 is
 #      unschedulable anyway - klipper's svclb already holds 0.0.0.0:443, which
 #      the scheduler treats as a conflict with every IP on that port.
 # Giving the workload its own tailnet IP sidesteps all three: traffic to it is
