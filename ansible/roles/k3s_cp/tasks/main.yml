@@ -110,16 +110,22 @@
   loop:
     - { src: pod-mss-clamp, dest: /usr/local/sbin/pod-mss-clamp, mode: "0755" }
     - { src: pod-mss-clamp.service, dest: /etc/systemd/system/pod-mss-clamp.service, mode: "0644" }
+    - { src: pod-mss-clamp.timer, dest: /etc/systemd/system/pod-mss-clamp.timer, mode: "0644" }
   loop_control:
     label: "{{ item.dest }}"
-  register: k3s_cp_mss_clamp
 
-- name: Enable and (re)run the MSS clamp
+- name: Enable the MSS clamp at boot + its safety-net timer
   ansible.builtin.systemd:
-    name: pod-mss-clamp.service
+    name: "{{ item.name }}"
     enabled: true
-    state: "{{ 'restarted' if k3s_cp_mss_clamp is changed else 'started' }}"
+    state: "{{ item.state }}"
     daemon_reload: true
+  loop:
+    - { name: pod-mss-clamp.timer, state: started }
+    # oneshot: `restarted` re-asserts the rule on every provision run
+    - { name: pod-mss-clamp.service, state: restarted }
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Download the K3s install script
   ansible.builtin.get_url:

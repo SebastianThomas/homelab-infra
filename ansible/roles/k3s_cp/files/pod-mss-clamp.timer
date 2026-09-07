@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-assert the pod-network TCP MSS clamp periodically
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target

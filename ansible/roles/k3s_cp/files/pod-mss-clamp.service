@@ -1,11 +1,13 @@
 [Unit]
 Description=Clamp pod-network TCP MSS (ingress over the small flannel MTU)
-After=k3s.service network-online.target
-Wants=k3s.service network-online.target
+After=k3s.service
+Wants=k3s.service
 
 [Service]
+# No RemainAfterExit: the rule it installs persists on its own (k3s only
+# rewrites nat/filter, not mangle). Leaving the unit inactive lets the timer
+# re-run it. Exits 0 without a rule if flannel isn't ready yet - the timer retries.
 Type=oneshot
-RemainAfterExit=yes
 ExecStart=/usr/local/sbin/pod-mss-clamp
 
 [Install]

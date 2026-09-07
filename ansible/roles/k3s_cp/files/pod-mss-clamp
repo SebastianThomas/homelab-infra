@@ -11,33 +11,38 @@
 # small requests (curl /health) work, the CI runner's `tailscale up` hangs.
 #
 # MSS clamping makes every TCP session negotiate a segment size that fits the
-# pod MTU up front, so PMTU discovery never has to work.
+# pod MTU up front, so PMTU discovery never has to work. The mangle/FORWARD rule
+# survives k3s restarts (k3s only rewrites nat/filter); the systemd timer that
+# runs this is just a safety net.
 set -eu
 
-# Wait for flannel to publish the MTU (it writes subnet.env a few seconds after
-# k3s starts); fall back to a sane value if it never shows.
-mtu=1400
+# flannel writes subnet.env a few seconds after k3s starts. Wait for it rather
+# than guess the MTU; give up quietly if it never shows (the timer retries).
 i=0
-while [ "$i" -lt 30 ]; do
-	if [ -r /run/flannel/subnet.env ]; then
-		# shellcheck disable=SC1091
-		. /run/flannel/subnet.env
-		mtu="${FLANNEL_MTU:-$mtu}"
-		break
-	fi
+while [ ! -r /run/flannel/subnet.env ]; do
 	i=$((i + 1))
+	if [ "$i" -ge 30 ]; then
+		logger -t pod-mss-clamp "no /run/flannel/subnet.env after 60s - not clamping yet"
+		exit 0
+	fi
 	sleep 2
 done
 
+# shellcheck disable=SC1091
+. /run/flannel/subnet.env
+mtu="${FLANNEL_MTU:?FLANNEL_MTU missing from subnet.env}"
+
 apply() {
-	# $1 = iptables|ip6tables, $2 = MSS
+	# $1 = iptables|ip6tables, $2 = MSS ceiling
 	"$1" -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN \
 		-m tcpmss --mss "$(($2 + 1)):65535" -j TCPMSS --set-mss "$2" 2>/dev/null || true
 	"$1" -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
 		-m tcpmss --mss "$(($2 + 1)):65535" -j TCPMSS --set-mss "$2"
 }
 
-apply iptables  "$((mtu - 40))"
-command -v ip6tables >/dev/null 2>&1 && apply ip6tables "$((mtu - 60))" || true
+apply iptables "$((mtu - 40))"
+if command -v ip6tables >/dev/null 2>&1; then
+	apply ip6tables "$((mtu - 60))"
+fi
 
 logger -t pod-mss-clamp "clamped forwarded TCP MSS to $((mtu - 40)) (FLANNEL_MTU=$mtu)"
