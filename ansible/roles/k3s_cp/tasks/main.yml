@@ -69,32 +69,12 @@
   when: k3s_flannel_iface | length > 0
   notify: Restart k3s
 
-- name: Remove the retired flannel-over-tailscale k3s drop-in
-  ansible.builtin.file:
-    path: /etc/systemd/system/k3s.service.d/20-tailscale.conf
-    state: absent
-  register: k3s_cp_old_dropin
-  notify: Restart k3s
-
 - name: Remove the pod-mesh k3s drop-in on a single-node cluster
   ansible.builtin.file:
     path: /etc/systemd/system/k3s.service.d/20-podmesh.conf
     state: absent
   when: k3s_flannel_iface | length == 0
   notify: Restart k3s
-
-# Reload now, not at flush_handlers: the old drop-in's ExecStartPre
-# (/usr/local/bin/wait-tailscale0) is the loaded unit until a reload, so a k3s
-# bounce in the gap would fail once the helper is gone. Reload first, then delete.
-- name: Reload systemd so the retired k3s ExecStartPre is dropped
-  ansible.builtin.systemd:
-    daemon_reload: true
-  when: k3s_cp_old_dropin is changed
-
-- name: Remove the retired wait-tailscale0 helper
-  ansible.builtin.file:
-    path: /usr/local/bin/wait-tailscale0
-    state: absent
 
 # flannel over wg0 gives a small pod MTU; the klipper -> Traefik ingress path
 # then black-holes large packets (a tailscale ClientHello) because the ICMP

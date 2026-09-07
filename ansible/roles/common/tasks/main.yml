@@ -127,30 +127,6 @@
         enabled: true
         state: started
 
-# The mesh used to ride tailscale0, which needed a watchdog: k3s restarts churned
-# flannel's routes and wedged tailscaled's link monitor (once for ~2.5h). Gone
-# now that the mesh is a static WireGuard link (roles/wireguard) - tailscaled no
-# longer carries pod traffic. (The other retired piece, the wait-tailscale0 k3s
-# gate, is torn down by the k3s_cp / k3s_worker roles, together with its drop-in.)
-- name: Remove the retired tailscaled watchdog
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /usr/local/bin/tailscaled-watchdog
-    - /etc/systemd/system/tailscaled-watchdog.service
-    - /etc/systemd/system/tailscaled-watchdog.timer
-  register: common_retired_units
-
-- name: Stop the retired tailscaled watchdog timer and reload systemd
-  ansible.builtin.systemd:
-    name: tailscaled-watchdog.timer
-    enabled: false
-    state: stopped
-    daemon_reload: true
-  when: common_retired_units is changed
-  failed_when: false
-
 # --- Tailscale exit node (per host: tailscale_exit_node: true) ----------
 # Route tailnet clients' traffic out through this node. Needs the node already
 # on the tailnet. Route approval (headscale nodes approve-routes -r 0.0.0.0/0,::/0)
@@ -182,19 +158,7 @@
         '0.0.0.0/0' not in
         ((common_ts_prefs.stdout | from_json).AdvertiseRoutes | default([]))
 
-    # NO `ethtool -K <nic> rx-udp-gro-forwarding on`. Tailscale suggests it for
-    # exit-node throughput, but on the VPS's virtio NIC it corrupts *forwarded*
-    # traffic - external clients could reach the host (SSH, tiny GETs) but not
-    # anything routed on to a pod (headscale /key, app ingress). Undo any
-    # earlier attempt.
-    - name: Remove the UDP-GRO tuning unit if it was ever installed
-      ansible.builtin.systemd:
-        name: tailscale-udp-gro.service
-        enabled: false
-        state: stopped
-      failed_when: false
-
-    - name: Delete the UDP-GRO tuning unit file
-      ansible.builtin.file:
-        path: /etc/systemd/system/tailscale-udp-gro.service
-        state: absent
+    # DO NOT add `ethtool -K <nic> rx-udp-gro-forwarding on`. Tailscale suggests
+    # it for exit-node throughput, but on the VPS's virtio NIC it corrupts
+    # *forwarded* traffic - external clients could reach the host (SSH, tiny
+    # GETs) but not anything routed on to a pod (headscale /key, app ingress).
