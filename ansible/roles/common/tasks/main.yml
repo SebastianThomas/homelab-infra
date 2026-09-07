@@ -127,20 +127,16 @@
         enabled: true
         state: started
 
-# The flannel pod mesh used to ride tailscale0, which needed:
-#   * a wait-tailscale0 gate on k3s (the interface has no address until
-#     tailscaled reaches headscale - which runs in this cluster => deadlock), and
-#   * a watchdog, because k3s restarts churned flannel's routes and wedged
-#     tailscaled's link monitor (once for ~2.5h).
-# Both are gone now that the mesh is a static WireGuard link (roles/wireguard):
-# tailscaled no longer carries pod traffic and k3s no longer waits on it. Older
-# nodes get the leftovers cleaned up here.
-- name: Remove the retired flannel-over-tailscale plumbing
+# The mesh used to ride tailscale0, which needed a watchdog: k3s restarts churned
+# flannel's routes and wedged tailscaled's link monitor (once for ~2.5h). Gone
+# now that the mesh is a static WireGuard link (roles/wireguard) - tailscaled no
+# longer carries pod traffic. (The other retired piece, the wait-tailscale0 k3s
+# gate, is torn down by the k3s_cp / k3s_worker roles, together with its drop-in.)
+- name: Remove the retired tailscaled watchdog
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop:
-    - /usr/local/bin/wait-tailscale0
     - /usr/local/bin/tailscaled-watchdog
     - /etc/systemd/system/tailscaled-watchdog.service
     - /etc/systemd/system/tailscaled-watchdog.timer

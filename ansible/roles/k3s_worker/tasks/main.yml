@@ -117,6 +117,7 @@
   ansible.builtin.file:
     path: /etc/systemd/system/k3s-agent.service.d/20-tailscale.conf
     state: absent
+  register: k3s_worker_old_dropin
   notify: Restart k3s-agent
 
 - name: Remove the pod-mesh k3s-agent drop-in when flannel-iface is unset
@@ -125,6 +126,19 @@
     state: absent
   when: k3s_flannel_iface | length == 0
   notify: Restart k3s-agent
+
+# Reload now (not at flush_handlers): the old drop-in's ExecStartPre
+# (/usr/local/bin/wait-tailscale0) is the loaded unit until a reload, so an agent
+# bounce in the gap would fail once the helper is gone. Reload first, then delete.
+- name: Reload systemd so the retired k3s-agent ExecStartPre is dropped
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: k3s_worker_old_dropin is changed
+
+- name: Remove the retired wait-tailscale0 helper
+  ansible.builtin.file:
+    path: /usr/local/bin/wait-tailscale0
+    state: absent
 
 # The kubelet client cert is issued for `system:node:<name>`. If the agent first
 # registered under the wrong name (fresh Pi hostname, e.g. "pi4"), a node-name

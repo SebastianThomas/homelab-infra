@@ -19,7 +19,7 @@ ListenPort = {{ wg_listen_port }}
 {% endif %}
 {% if inventory_hostname == hub %}
 {% for host in groups['k3s_workers'] | default([]) | sort %}
-{% if hostvars[host].wg_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$') %}
+{% if hostvars[host].wg_public_key | default('') is match('[A-Za-z0-9+/]{43}=$') %}
 
 [Peer]
 # {{ host }}
