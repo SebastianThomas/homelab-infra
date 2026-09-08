@@ -15,3 +15,10 @@ common_manage_etc_hosts: true
 # Load the wireguard kernel module - the wg0 pod-mesh link (roles/wireguard)
 # needs it. Harmless if unused.
 common_load_wireguard: true
+
+# inotify ceilings. systemd defaults to 128 instances, which a k3s node with a
+# few dozen pods exhausts ("failed to create fsnotify watcher: too many open
+# files"). Both are limits, not allocations - raise freely, nothing is reserved.
+# Only ever raise these: a value below the distro default would be a regression.
+common_inotify_max_user_instances: 512
+common_inotify_max_user_watches: 524288

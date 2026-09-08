@@ -84,6 +84,29 @@
   failed_when: false          # built-in on some kernels, or loaded at boot; not fatal
   when: common_load_wireguard | bool
 
+# --- Kernel tunables --------------------------------------------------
+# containerd, the kubelet and every controller that watches files open inotify
+# instances as root, and systemd's default ceiling of 128 runs out on a node
+# with a few dozen pods. The failure is obscure: "failed to create fsnotify
+# watcher: too many open files" (EMFILE from inotify_init) - it shows up first
+# on `kubectl logs -f`, but containerd and the kubelet hit the same wall.
+# Ceilings only: kernel memory is charged per watch actually created (~1 KB),
+# nothing is reserved, so raising these cannot cost anything on an idle node.
+- name: Raise the inotify ceilings for k3s
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value | string }}"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    sysctl_set: true
+    reload: true
+  loop:
+    - name: fs.inotify.max_user_instances
+      value: "{{ common_inotify_max_user_instances }}"
+    - name: fs.inotify.max_user_watches
+      value: "{{ common_inotify_max_user_watches }}"
+  loop_control:
+    label: "{{ item.name }} = {{ item.value }}"
+
 # --- Graceful node shutdown -----------------------------------------
 # The kubelet (roles/k3s_cp / roles/k3s_worker) takes a systemd delay-inhibitor
 # lock on shutdown so it can terminate pods first, but systemd only honours it
