@@ -152,11 +152,15 @@
       register: common_ts_prefs
       changed_when: false
 
+    # `tailscale debug prefs` emits `"AdvertiseRoutes": null` (not []) on a node
+    # that advertises nothing - the `, true` makes `default` swap that null for a
+    # list so `not in` doesn't blow up on NoneType. Without it this task errors
+    # on exactly the nodes that still need advertising (e.g. a fresh kube-cp-01).
     - name: Advertise the exit node
       ansible.builtin.command: tailscale set --advertise-exit-node
       when: >-
         '0.0.0.0/0' not in
-        ((common_ts_prefs.stdout | from_json).AdvertiseRoutes | default([]))
+        ((common_ts_prefs.stdout | from_json).AdvertiseRoutes | default([], true))
 
     # DO NOT add `ethtool -K <nic> rx-udp-gro-forwarding on`. Tailscale suggests
     # it for exit-node throughput, but on the VPS's virtio NIC it corrupts
