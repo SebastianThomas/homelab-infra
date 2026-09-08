@@ -25,6 +25,29 @@ k3s_resolvers:
   - 212.227.123.17
   - 1.1.1.1            # public fallback
 
+# --- Graceful node shutdown (kubelet) ----------------------------------
+# On any `reboot` / `poweroff` the kubelet holds a systemd inhibitor lock and
+# terminates this node's pods in order - regular pods first, then critical
+# (CoreDNS et al.) - before releasing the shutdown. PVCs stay put; controllers
+# recreate the pods on boot and the node clears its "shutting down" state on its
+# own (no cordon / uncordon). Cost: every shutdown waits up to the grace period.
+#
+# On the single-node CP this is a clean stop for CNPG / Headscale rather than a
+# SIGKILL when containerd dies with the system. It does NOT move pods to another
+# node - on one node there is nowhere to move them.
+#
+# k3s_shutdown_inhibit_delay (systemd InhibitDelayMaxSec, set by roles/common)
+# MUST be >= k3s_shutdown_grace_period, or systemd cuts the kubelet off after
+# min(InhibitDelayMaxSec, grace) and the rest of the pods get SIGKILLed.
+#
+# Budget: (grace - critical) = 30s for regular pods (CNPG et al. get a real
+# Postgres fast-shutdown), then 15s for critical ones (CoreDNS). A pod asking
+# for a longer terminationGracePeriodSeconds is still capped at its phase's
+# share - raise these if something genuinely needs more.
+k3s_shutdown_grace_period: "45s"
+k3s_shutdown_grace_period_critical_pods: "15s"
+k3s_shutdown_inhibit_delay: "60s"
+
 # --- Identity / DNS -----------------------------------------------------
 # The one public name that resolves to the VPS. Sub-labels
 # (headscale.<domain>, <app>.<domain>) are CNAMEd onto it.

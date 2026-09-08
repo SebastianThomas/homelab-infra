@@ -455,6 +455,34 @@ Bump `k3s_version` in `ansible/group_vars/all/main.yml` (one minor at a time),
 run `provision`. `site.yml` does servers before agents. Renovate opens the PR
 for you (label `k3s-upgrade`).
 
+## Rebooting a node
+
+`sudo reboot` (or `systemctl reboot`) is safe — no `kubectl drain` needed. The
+kubelet is configured for **graceful node shutdown**
+(`shutdownGracePeriod` / `shutdownGracePeriodCriticalPods` in a `kubelet.config`
+file, `k3s_shutdown_*` in `group_vars`): it holds a systemd inhibitor lock and
+terminates the node's pods in order — regular pods, then critical ones like
+CoreDNS — before releasing the shutdown. PVCs are left attached; on boot the
+controllers recreate the pods and the node clears its own "shutting down" state,
+so there is nothing to uncordon.
+
+- Every shutdown is delayed by up to `k3s_shutdown_grace_period` (45 s: 30 s for
+  regular pods, then 15 s for critical ones). It never *blocks* — PodDisruption
+  Budgets and single-node placement are ignored, and systemd force-proceeds at
+  `k3s_shutdown_inhibit_delay` (60 s) regardless.
+- `k3s_shutdown_inhibit_delay` (systemd `InhibitDelayMaxSec`, `roles/common`)
+  must stay `>=` the grace period or systemd cuts the kubelet off early.
+- On `kube-cp-01` this only makes the stop *graceful* (clean CNPG / SQLite
+  shutdown instead of a SIGKILL when containerd dies) — it does **not** move
+  pods elsewhere, there being no other node. Take a `/var/lib/rancher/k3s`
+  backup first anyway (see [Backups](#backups)); expect a full ~2–5 min service
+  outage.
+- Verify it is active: `systemd-inhibit --list | grep kubelet` (a `shutdown`
+  delay lock owned by `kubelet`), or
+  `k3s kubectl get --raw "/api/v1/nodes/<node>/proxy/configz" | jq .kubeletconfig.shutdownGracePeriod`.
+- Pods that were mid-termination can linger briefly as `Failed` after boot;
+  the pod GC controller clears them.
+
 ## Backups
 
 Git holds **configuration**. Runtime **state** on `kube-cp-01` — everything

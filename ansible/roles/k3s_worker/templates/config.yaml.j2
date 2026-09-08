@@ -34,3 +34,7 @@ flannel-iface: "{{ k3s_flannel_iface }}"
 {% if k3s_resolv_conf_manage | bool %}
 resolv-conf: /etc/rancher/k3s/resolv.conf
 {% endif %}
+
+kubelet-arg:
+  # Merge in shutdownGracePeriod* - graceful node shutdown (roles/k3s_worker).
+  - "config=/etc/rancher/k3s/kubelet.config"

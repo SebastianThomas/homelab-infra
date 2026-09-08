@@ -1,2 +1,8 @@
 ---
-# No handlers needed for the common role. File kept for structural consistency.
+# systemd-logind re-reads logind.conf only on restart; a restart keeps existing
+# login sessions (systemd >= 235, both target distros are well past that), so the
+# Ansible SSH session survives.
+- name: Restart systemd-logind
+  ansible.builtin.systemd:
+    name: systemd-logind
+    state: restarted

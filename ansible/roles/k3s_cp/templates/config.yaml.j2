@@ -37,6 +37,8 @@ tls-san:
 
 kubelet-arg:
   - "eviction-hard=memory.available<100Mi,nodefs.available<10%,imagefs.available<10%"
+  # Merge in shutdownGracePeriod* - graceful node shutdown (roles/k3s_cp).
+  - "config=/etc/rancher/k3s/kubelet.config"
 {% if k3s_resolv_conf_manage | bool %}
 resolv-conf: /etc/rancher/k3s/resolv.conf
 {% endif %}

@@ -90,6 +90,24 @@
     mode: "0600"
   notify: Restart k3s-agent
 
+# Graceful node shutdown: the kubelet terminates this node's pods before
+# releasing the shutdown, so a Pi `reboot` stops its workloads cleanly. Pulled
+# in by the `config=` kubelet-arg in config.yaml; minimal because k3s passes
+# everything else as flags, which override it.
+- name: Write the kubelet config
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/kubelet.config
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/k3s_worker.
+      apiVersion: kubelet.config.k8s.io/v1beta1
+      kind: KubeletConfiguration
+      shutdownGracePeriod: {{ k3s_shutdown_grace_period }}
+      shutdownGracePeriodCriticalPods: {{ k3s_shutdown_grace_period_critical_pods }}
+  notify: Restart k3s-agent
+
 - name: Create the k3s-agent systemd drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/k3s-agent.service.d

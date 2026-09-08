@@ -84,6 +84,33 @@
   failed_when: false          # built-in on some kernels, or loaded at boot; not fatal
   when: common_load_wireguard | bool
 
+# --- Graceful node shutdown -----------------------------------------
+# The kubelet (roles/k3s_cp / roles/k3s_worker) takes a systemd delay-inhibitor
+# lock on shutdown so it can terminate pods first, but systemd only honours it
+# for min(InhibitDelayMaxSec, kubelet shutdownGracePeriod). Raise the cap so the
+# grace period is what actually applies. `zz-` so it wins over a drop-in that
+# unattended-upgrades may ship.
+- name: Create the logind drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/logind.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Give the kubelet's shutdown inhibitor lock enough time
+  ansible.builtin.copy:
+    dest: /etc/systemd/logind.conf.d/zz-k3s-graceful-shutdown.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - roles/common. Keep InhibitDelayMaxSec >= the
+      # kubelet's shutdownGracePeriod (roles/k3s_*/kubelet.config).
+      [Login]
+      InhibitDelayMaxSec={{ k3s_shutdown_inhibit_delay }}
+  notify: Restart systemd-logind
+
 # --- Tailscale --------------------------------------------------------
 # The tailnet is the ADMIN plane: your kubectl / SSH, CI runners, MagicDNS, and
 # the nodes' exit-node advertisement. The pod mesh does NOT ride it (see the
