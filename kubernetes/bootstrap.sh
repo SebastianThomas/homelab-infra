@@ -12,7 +12,7 @@ set -euo pipefail
 
 # --- pinned upstream operator versions (Renovate-managed) -------------------
 # renovate: datasource=github-releases depName=cert-manager/cert-manager
-CERT_MANAGER_VERSION="v1.21.1"
+CERT_MANAGER_VERSION="v1.21.2"
 # renovate: datasource=github-releases depName=cloudnative-pg/cloudnative-pg
 CNPG_VERSION="1.30.0"
 
