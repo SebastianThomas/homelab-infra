@@ -1,0 +1,5 @@
+---
+# Security-only apt patches; K3s and app images are pinned/Renovate-managed
+# elsewhere, so this role never touches them. Reboots are handled by kured
+# (kubernetes/infrastructure/kured), not here - see the template.
+unattended_upgrades_enabled: true

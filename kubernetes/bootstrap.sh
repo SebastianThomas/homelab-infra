@@ -68,6 +68,11 @@ kubectl apply -k "${here}/infrastructure/monitoring"
 # serving it. Idempotent; delete these lines once every cluster has converged.
 kubectl -n monitoring delete httproute grafana --ignore-not-found
 
+step "kured (coordinated automatic node reboots)"
+# Installed via the in-cluster helm-controller (K3s HelmChart CR) - async, so
+# no rollout wait here. Check: kubectl -n kured get helmchart,pods
+kubectl apply -k "${here}/infrastructure/kured"
+
 step "App-deployer identity (shared)"
 # One ServiceAccount + ClusterRole that every app repo uses to deploy itself.
 # homelab-infra carries NO per-app config - see kubernetes/apps/README.md.

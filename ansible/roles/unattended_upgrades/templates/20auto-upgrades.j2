@@ -1,0 +1,6 @@
+{{ ansible_managed | comment('cpp') }}
+// /etc/apt/apt.conf.d/20auto-upgrades - enables the daily apt-daily /
+// apt-daily-upgrade timer cycle. What actually gets upgraded (security-only)
+// and when a reboot happens are controlled by 50unattended-upgrades.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";

@@ -76,13 +76,8 @@ spec:
           certificateRefs:
             - name: gateway-tls
 
-    # `ports.web.redirectTo` (the chart's documented way to configure this) is
-    # silently dropped by this chart/K3s version - verified on the live pod:
-    # `ps aux` on the traefik process shows every other ports.web.* value
-    # (forwardedHeaders, transport.respondingTimeouts) reflected as a CLI flag,
-    # but no `--entrypoints.web.http.redirections...` flag ever appears, and
-    # every hostname served plain 200 OK over HTTP with no redirect. Setting
-    # the flags directly via additionalArguments is chart-version-proof.
+    # `ports.web.redirectTo` (the chart's documented way) is silently dropped
+    # by this chart/K3s version - verified via `ps aux` on the live pod.
     additionalArguments:
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"

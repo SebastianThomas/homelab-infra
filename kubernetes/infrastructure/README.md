@@ -11,6 +11,7 @@ Cluster-wide platform services. Applied by
 | `headscale/` | Headscale control server + Headplane web UI | Single `headscale` namespace, pinned to the VPS. See [`headscale/README.md`](headscale/README.md). |
 | `monitoring/` | VictoriaMetrics + VictoriaLogs + Grafana | The lightweight kube-prometheus-stack equivalent, installed via two K3s `HelmChart` CRs (helm-controller, no `helm` CLI). Grafana at `grafana.ts.homelab.sthomas.ch` — **tailnet-only, enforced**: the `grafana-tailnet` pod is its own Tailscale node, so there is no public route at all. See [`monitoring/README.md`](monitoring/README.md). |
 | `app-deployer/` | one `app-deployer` SA + `ClusterRole` (namespace `ci`) | The shared identity every app repo deploys itself with — its token is `KUBE_TOKEN` for all of them. Scoped to app resources (Deployments/Services/HTTPRoutes/CNPG `Cluster`s/namespaced RBAC), not the platform. See [`../apps/README.md`](../apps/README.md). |
+| `kured/` | Kubernetes Reboot Daemon (`HelmChart`) | Coordinates the actual reboot after `roles/unattended_upgrades` (ansible/) installs a security patch that needs one. One node at a time, fixed UTC window, and it never proceeds to the next node if the previous one hasn't rejoined (`lockTtl: 0` — deliberate fail-closed). See `kured/helmchart.yaml` + `kured/values.yaml`. |
 
 ### Adding a new infrastructure component
 

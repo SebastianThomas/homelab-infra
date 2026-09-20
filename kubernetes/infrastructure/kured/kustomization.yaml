@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kured
+
+resources:
+  - namespace.yaml
+  - helmchart.yaml
+
+# Reads values.yaml into a ConfigMap, then copies its content into the
+# HelmChart's spec.valuesContent (the CRD only accepts an inline string).
+configMapGenerator:
+  - name: kured-values
+    files:
+      - values.yaml
+    options:
+      disableNameSuffixHash: true # nothing mounts this; avoids orphaned copies
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: kured-values
+      fieldPath: data.[values.yaml]
+    targets:
+      - select:
+          kind: HelmChart
+          name: kured
+        fieldPaths:
+          - spec.valuesContent

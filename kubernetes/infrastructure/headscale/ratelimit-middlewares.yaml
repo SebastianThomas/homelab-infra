@@ -1,18 +1,6 @@
-# Rate limits for the public headscale.homelab.sthomas.ch route (see
-# httproute.yaml). Source IP is the real client, not klipper's SNAT address -
-# Traefik's `web`/`websecure` entrypoints trust X-Forwarded-* from the pod CIDR
-# (helmchartconfig.yaml forwardedHeaders.trustedIPs), so each middleware's
-# default IP-based sourceCriterion buckets by actual attacker/client IP.
-#
-# Two separate limits, not one, because the two backends have very different
-# legitimate traffic shapes:
-#   - Headplane (/admin) is a human login form with no OIDC/MFA (see the
-#     2026-09-20 security review) - the risk is credential stuffing against
-#     the API-key login, so it gets a tight budget.
-#   - headscale itself (/) is the tailnet control protocol: real nodes hold
-#     long-lived connections (respondingTimeouts disabled) and poll
-#     periodically, not on every request - a generous budget just blocks raw
-#     abuse/scraping without ever touching normal node check-ins.
+# Rate limits for headscale.homelab.sthomas.ch (see httproute.yaml). Bucketed
+# by real client IP via the entrypoint's trusted forwarded headers, not
+# klipper's SNAT address.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -20,7 +8,7 @@ metadata:
   namespace: headscale
 spec:
   rateLimit:
-    average: 10
+    average: 10 # /admin has no OIDC/MFA - tight budget against brute force
     period: 1m
     burst: 20
 ---
@@ -31,6 +19,6 @@ metadata:
   namespace: headscale
 spec:
   rateLimit:
-    average: 100
+    average: 100 # generous - real nodes hold long-lived connections
     period: 1m
     burst: 200

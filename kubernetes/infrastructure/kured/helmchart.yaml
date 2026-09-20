@@ -1,0 +1,22 @@
+# kured (Kubernetes Reboot Daemon): the only thing that actually reboots a
+# node. roles/unattended_upgrades installs security patches and leaves
+# /var/run/reboot-required behind; kured watches that sentinel on every node
+# and reboots one at a time, never starting the next until the previous one
+# has rejoined (lockTtl: 0 in values.yaml - deliberately fail-closed).
+#
+# Installed via K3s's helm-controller, same as monitoring/. Watch with:
+#   kubectl -n kured get helmchart,pods -o wide
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kured
+  namespace: kured
+spec:
+  repo: https://kubereboot.github.io/charts
+  chart: kured
+  # renovate: chart=kured
+  version: "6.1.0"
+  targetNamespace: kured
+  failurePolicy: abort
+  timeout: 5m
+  valuesContent: "" # filled in by kustomization.yaml from values.yaml

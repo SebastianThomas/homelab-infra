@@ -1,0 +1,18 @@
+# Helm values for kured, injected into helmchart.yaml's spec.valuesContent by
+# kustomization.yaml (the HelmChart CRD only accepts that field inline).
+configuration:
+  rebootSentinel: "/var/run/reboot-required"
+  concurrency: 1
+  lockTtl: 0 # never auto-expire - a stuck node halts further reboots
+  lockReleaseDelay: "5m" # settle time after a node is Ready again
+  period: "1h"
+  timeZone: "UTC" # independent of the node's own system clock
+  startTime: "04:00"
+  endTime: "05:00"
+
+# kube-worker-01's NoSchedule taint would otherwise exclude kured too.
+tolerations:
+  - key: "homelab.sthomas.ch/edge"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"

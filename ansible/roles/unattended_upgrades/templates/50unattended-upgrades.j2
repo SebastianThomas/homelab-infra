@@ -1,0 +1,14 @@
+{{ ansible_managed | comment('cpp') }}
+// /etc/apt/apt.conf.d/50unattended-upgrades
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+};
+
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "false";
+
+// kured (kubernetes/infrastructure/kured) owns reboot timing/coordination.
+Unattended-Upgrade::Automatic-Reboot "false";
+
+Unattended-Upgrade::SyslogEnable "true";
