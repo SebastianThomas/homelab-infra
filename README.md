@@ -226,7 +226,9 @@ ship with K3s). See [`docs/gateway-api.md`](docs/gateway-api.md).
 
 At the edge: **Traefik is the public edge**. `service.spec.type: LoadBalancer`
 → K3s ServiceLB (klipper) binds the host's `:80`/`:443` straight to Traefik;
-`ports.web.redirectTo` sends HTTP → HTTPS. TLS terminates on one cert-manager
+`additionalArguments` sends HTTP → HTTPS (the chart's own `ports.web.redirectTo`
+key is silently dropped by this chart/K3s version - verified on the live pod,
+see the comment in `helmchartconfig.yaml`). TLS terminates on one cert-manager
 DNS-01 **wildcard** cert (`gateway-tls`, `*.sthomas.ch` + `*.homelab.sthomas.ch`),
 so a new hostname needs nothing at the edge.
 

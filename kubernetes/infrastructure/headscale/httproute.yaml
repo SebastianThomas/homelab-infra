@@ -15,18 +15,33 @@ spec:
     - headscale.homelab.sthomas.ch
   rules:
     # Headplane admin UI (more specific path wins regardless of rule order).
+    # Tight rate limit: this login has no OIDC/MFA, just an API-key paste
+    # (see ratelimit-middlewares.yaml).
     - matches:
         - path:
             type: PathPrefix
             value: /admin
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: headplane-ratelimit
       backendRefs:
         - name: headplane
           port: 3000
-    # Everything else is the headscale control protocol + API.
+    # Everything else is the headscale control protocol + API. Generous limit
+    # - real nodes hold long-lived connections, not high request rates.
     - matches:
         - path:
             type: PathPrefix
             value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: headscale-ratelimit
       backendRefs:
         - name: headscale
           port: 8080

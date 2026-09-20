@@ -20,7 +20,7 @@ HTTPRoute (app namespace) ─parentRef─▶ Gateway "traefik-gateway" (kube-sys
 |---|---|---|
 | Gateway API CRDs (`v1.5.1`, standard channel) | **K3s** — its `traefik-crd` Helm release | `helm.sh/resource-policy: keep`, version-locked to the bundled Traefik. We don't install or pin them. |
 | `GatewayClass` `traefik` | Traefik chart | controller `traefik.io/gateway-controller`; created because `gatewayClass.enabled` + `providers.kubernetesGateway.enabled` |
-| `Gateway` `traefik-gateway` in `kube-system` | Traefik chart | listeners `web` (HTTP `:8000`, redirects to HTTPS) + `websecure` (HTTPS `:8443`, wildcard `certificateRefs`), both `allowedRoutes.namespaces.from: All` |
+| `Gateway` `traefik-gateway` in `kube-system` | Traefik chart | listeners `web` (HTTP `:8000`, redirects to HTTPS via `additionalArguments` - see `helmchartconfig.yaml`) + `websecure` (HTTPS `:8443`, wildcard `certificateRefs`), both `allowedRoutes.namespaces.from: All` |
 | `HTTPRoute`s | this repo | `infrastructure/headscale/httproute.yaml`, `apps/<name>/httproute.yaml` |
 
 All of the Traefik config is in
