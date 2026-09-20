@@ -116,7 +116,7 @@ spec:
             - name: dev-net-tun
               mountPath: /dev/net/tun
         - name: tls
-          image: docker.io/nginx:1.31.5-alpine
+          image: docker.io/nginx:1.31.6-alpine
           ports:
             - name: https
               containerPort: 443
