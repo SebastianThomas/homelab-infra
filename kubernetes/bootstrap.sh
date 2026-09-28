@@ -14,7 +14,7 @@ set -euo pipefail
 # renovate: datasource=github-releases depName=cert-manager/cert-manager
 CERT_MANAGER_VERSION="v1.21.2"
 # renovate: datasource=github-releases depName=cloudnative-pg/cloudnative-pg
-CNPG_VERSION="1.30.0"
+CNPG_VERSION="1.30.1"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
