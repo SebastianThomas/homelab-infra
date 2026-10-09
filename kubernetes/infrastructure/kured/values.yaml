@@ -9,6 +9,11 @@ configuration:
   timeZone: "UTC" # independent of the node's own system clock
   startTime: "04:00"
   endTime: "05:00"
+  # Drain always respects PDBs (eviction API, no opt-out). Single-instance CNPG
+  # clusters' `*-primary` PDB (minAvailable 1) can never be satisfied, so give
+  # the drain 15m, then reboot anyway - Postgres recovers from WAL on restart.
+  drainTimeout: "15m"
+  forceReboot: true
 
 # kube-worker-01's NoSchedule taint would otherwise exclude kured too.
 tolerations:
