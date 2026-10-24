@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: headscale
-          image: docker.io/headscale/headscale:v0.29.4
+          image: docker.io/headscale/headscale:v0.29.6
           args: ["serve"]
           ports:
             - name: http
