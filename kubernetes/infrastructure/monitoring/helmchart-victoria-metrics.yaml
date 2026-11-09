@@ -24,7 +24,7 @@ spec:
   repo: https://victoriametrics.github.io/helm-charts
   chart: victoria-metrics-k8s-stack
   # renovate: chart=victoria-metrics-k8s-stack
-  version: "0.91.2"
+  version: "0.98.1"
   targetNamespace: monitoring
   # NEVER uninstall+reinstall on a failed upgrade (the K3s default `reinstall`
   # tears down the operator + all CRs = data loss). `abort` leaves the last good
